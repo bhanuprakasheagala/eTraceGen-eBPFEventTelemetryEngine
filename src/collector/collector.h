@@ -10,6 +10,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <cstdint>
 
 namespace event_logger {
 

@@ -15,7 +15,20 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
+// Avoid name collisions with kernel-declared symbols from vmlinux.h during BPF compile.
+#define event_header event_logger_event_header
+#define process_event event_logger_process_event
+#define file_event event_logger_file_event
+#define syscall_event event_logger_syscall_event
+#define network_event event_logger_network_event
 #include "../include/event_schema.h"
+
+#ifndef AF_INET
+#define AF_INET 2
+#endif
+#ifndef AF_INET6
+#define AF_INET6 10
+#endif
 
 char LICENSE[] SEC("license") = "GPL";
 

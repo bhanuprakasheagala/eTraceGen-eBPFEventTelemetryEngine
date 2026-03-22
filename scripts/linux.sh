@@ -90,16 +90,34 @@ build_bpf() {
 
   bpftool btf dump file /sys/kernel/btf/vmlinux format c > "${VMLINUX_H}"
 
+  # Ubuntu/Debian with clang --target=bpf may need explicit multiarch include path
+  # so stdint.h can resolve bits/libc-header-start.h.
+  local gcc_triplet=""
+  local multiarch_include=""
+  if command -v gcc >/dev/null 2>&1; then
+    gcc_triplet="$(gcc -dumpmachine 2>/dev/null || true)"
+  fi
+  if [[ -n "${gcc_triplet}" && -d "/usr/include/${gcc_triplet}" ]]; then
+    multiarch_include="/usr/include/${gcc_triplet}"
+  fi
+
+  local extra_include_flags=()
+  if [[ -n "${multiarch_include}" ]]; then
+    extra_include_flags+=("-I${multiarch_include}")
+  fi
+
   "${clang_bin}" \
     -g -O2 -target bpf \
     -D__TARGET_ARCH_${target_arch} \
     -I"${ROOT_DIR}/bpf" \
     -I"${ROOT_DIR}/include" \
+    "${extra_include_flags[@]}" \
     -c "${BPF_SRC}" \
     -o "${BPF_OBJ}"
 
-  pass "built ${BPF_OBJ} (clang=${clang_bin})"
+  pass "built ${BPF_OBJ} (clang=${clang_bin}${multiarch_include:+, multiarch_include=${multiarch_include}})"
 }
+
 
 host_check() {
   ensure_linux

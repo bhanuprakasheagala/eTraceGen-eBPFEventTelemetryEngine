@@ -7,7 +7,9 @@
  * - Field order and width are ABI-sensitive: changing them can break decode compatibility.
  */
 
+#ifndef __BPF__
 #include <stdint.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
