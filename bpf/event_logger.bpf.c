@@ -364,7 +364,10 @@ static __always_inline void parse_sockaddr_user(const void* user_ptr, __u32 len,
 
   *family = 0;
   *port = 0;
-  __builtin_memset(addr, 0, 16);
+  #pragma unroll
+  for (int i = 0; i < 16; ++i) {
+    addr[i] = 0;
+  }
 
   if (!user_ptr || len < sizeof(__u16)) {
     return;
@@ -432,10 +435,17 @@ static __always_inline struct process_event* reserve_process_event(__u32 kind) {
     return 0;
   }
 
-  __builtin_memset(ev, 0, sizeof(*ev));
   fill_header(&ev->hdr, EVENT_TYPE_PROCESS);
   ev->hdr.size = sizeof(*ev);
   ev->kind = kind;
+  ev->exit_code = 0;
+  ev->child_pid = 0;
+  ev->filename[0] = '\0';
+  ev->exec_path[0] = '\0';
+  ev->cmdline[0] = '\0';
+  ev->cwd[0] = '\0';
+  ev->parent_comm[0] = '\0';
+  ev->start_time_ticks = 0;
 
   return ev;
 }
@@ -448,10 +458,15 @@ static __always_inline struct file_event* reserve_file_event(__u32 kind) {
     return 0;
   }
 
-  __builtin_memset(ev, 0, sizeof(*ev));
   fill_header(&ev->hdr, EVENT_TYPE_FILE);
   ev->hdr.size = sizeof(*ev);
   ev->kind = kind;
+  ev->dfd = 0;
+  ev->flags = 0;
+  ev->mode = 0;
+  ev->ret = 0;
+  ev->path_a[0] = '\0';
+  ev->path_b[0] = '\0';
 
   return ev;
 }
@@ -464,9 +479,14 @@ static __always_inline struct syscall_event* reserve_syscall_event(void) {
     return 0;
   }
 
-  __builtin_memset(ev, 0, sizeof(*ev));
   fill_header(&ev->hdr, EVENT_TYPE_SYSCALL);
   ev->hdr.size = sizeof(*ev);
+  ev->is_enter = 0;
+  ev->syscall_nr = 0;
+  ev->arg0 = 0;
+  ev->arg1 = 0;
+  ev->arg2 = 0;
+  ev->ret = 0;
 
   return ev;
 }
@@ -479,10 +499,22 @@ static __always_inline struct network_event* reserve_network_event(__u32 kind) {
     return 0;
   }
 
-  __builtin_memset(ev, 0, sizeof(*ev));
   fill_header(&ev->hdr, EVENT_TYPE_NETWORK);
   ev->hdr.size = sizeof(*ev);
   ev->kind = kind;
+  ev->fd = 0;
+  ev->ret = 0;
+  ev->domain = 0;
+  ev->sock_type = 0;
+  ev->protocol = 0;
+  ev->addr_family = 0;
+  ev->src_port = 0;
+  ev->dst_port = 0;
+#pragma unroll
+  for (int i = 0; i < 16; ++i) {
+    ev->src_addr[i] = 0;
+    ev->dst_addr[i] = 0;
+  }
 
   return ev;
 }
