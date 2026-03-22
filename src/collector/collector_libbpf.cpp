@@ -413,7 +413,8 @@ bool ApplyNetworkProbeConfig(int map_fd, bool enabled) {
   const uint8_t value = enabled ? 1U : 0U;
 
   const uint32_t keys[] = {
-      NETWORK_SOCKET, NETWORK_CONNECT, NETWORK_ACCEPT, NETWORK_BIND, NETWORK_LISTEN, NETWORK_CLOSE,
+      NETWORK_SOCKET, NETWORK_CONNECT, NETWORK_ACCEPT, NETWORK_BIND, NETWORK_LISTEN,
+      NETWORK_CLOSE, NETWORK_SENDTO, NETWORK_RECVFROM, NETWORK_SHUTDOWN,
   };
   for (int i = 0; i < 6; ++i) {
     uint32_t key = keys[i];
@@ -565,7 +566,6 @@ class LibbpfCollector final : public Collector {
     const std::string cfg_path = DefaultConfigPath();
     startup_report_.config_path = cfg_path;
     startup_report_.runtime_config_loaded = LoadRuntimeConfig(cfg_path, &runtime_cfg);
-    LogSyscallAllowlistPortability(runtime_cfg);
     if (!startup_report_.runtime_config_loaded) {
       std::cerr << "[collector] config not found, using defaults: " << cfg_path << "\n";
       AppendDegradeReason(&startup_report_, "runtime config not found; defaults used");
@@ -575,6 +575,8 @@ class LibbpfCollector final : public Collector {
     const int stats_fd = bpf_object__find_map_fd_by_name(obj_, "bpf_stats");
     const int file_toggle_fd = bpf_object__find_map_fd_by_name(obj_, "file_probe_enabled");
     const int process_toggle_fd = bpf_object__find_map_fd_by_name(obj_, "process_probe_enabled");
+    const int syscall_probe_enabled_fd =
+        bpf_object__find_map_fd_by_name(obj_, "syscall_probe_enabled");
     const int syscall_allowlist_fd = bpf_object__find_map_fd_by_name(obj_, "syscall_allowlist");
     const int pid_allowlist_fd = bpf_object__find_map_fd_by_name(obj_, "pid_allowlist");
     const int uid_allowlist_fd = bpf_object__find_map_fd_by_name(obj_, "uid_allowlist");
@@ -607,6 +609,10 @@ class LibbpfCollector final : public Collector {
     if (process_toggle_fd < 0) {
       AppendDegradeReason(&startup_report_,
                           "process_probe_enabled map missing; runtime process toggles disabled");
+    }
+    if (syscall_probe_enabled_fd < 0) {
+      AppendDegradeReason(&startup_report_,
+                          "syscall_probe_enabled map missing; runtime syscall domain toggle disabled");
     }
     if (!startup_report_.map_syscall_allowlist_found) {
       AppendDegradeReason(&startup_report_,
@@ -646,6 +652,10 @@ class LibbpfCollector final : public Collector {
 
     if (!ApplyProcessProbeConfig(process_toggle_fd, process_domain_enabled)) {
       AppendDegradeReason(&startup_report_, "process probe toggle apply failed");
+    }
+
+    if (!SetAllowlistEnabled(syscall_probe_enabled_fd, syscall_domain_enabled, "syscall_probe")) {
+      AppendDegradeReason(&startup_report_, "syscall probe toggle apply failed");
     }
 
     FileProbeConfig effective_file_probes = runtime_cfg.file_probes;

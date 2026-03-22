@@ -4,7 +4,7 @@
 /*
  * File Notes:
  * - Defines the ingestion backend contract used by the rest of the pipeline.
- * - Collector hides source mechanics (libbpf or stub) behind one interface.
+ * - Collector hides libbpf ring-buffer source mechanics behind one interface.
  */
 
 #include <functional>
@@ -77,7 +77,7 @@ struct CollectorStartupReport {
  * @brief Abstract ingress backend for event retrieval.
  *
  * Implementations provide a common lifecycle regardless of the source
- * (for example, libbpf ring buffer or a local stub backend).
+ * (libbpf ring buffer ingress).
  */
 class Collector {
  public:
