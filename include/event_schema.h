@@ -59,6 +59,9 @@ enum network_event_kind {
   NETWORK_BIND = 4,
   NETWORK_LISTEN = 5,
   NETWORK_CLOSE = 6,
+  NETWORK_SENDTO = 7,
+  NETWORK_RECVFROM = 8,
+  NETWORK_SHUTDOWN = 9,
 };
 
 /**

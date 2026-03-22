@@ -79,6 +79,14 @@ struct {
   __type(value, __u8);
 } process_probe_enabled SEC(".maps");
 
+/* Runtime syscall domain toggle. Values: 0=disabled, non-zero=enabled. */
+struct {
+  __uint(type, BPF_MAP_TYPE_ARRAY);
+  __uint(max_entries, 1);
+  __type(key, __u32);
+  __type(value, __u8);
+} syscall_probe_enabled SEC(".maps");
+
 /*
  * Selected syscall allowlist keyed by syscall number.
  * Values: 0=disabled, non-zero=enabled.
@@ -125,7 +133,7 @@ struct {
 /* Runtime network domain probe toggles keyed by network_event_kind. */
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
-  __uint(max_entries, 8);
+  __uint(max_entries, 16);
   __type(key, __u32);
   __type(value, __u8);
 } network_probe_enabled SEC(".maps");
@@ -245,11 +253,21 @@ static __always_inline bool is_network_probe_enabled(__u32 kind) {
   return enabled && (*enabled != 0);
 }
 
+static __always_inline bool is_syscall_probe_enabled(void) {
+  __u32 key = 0;
+  __u8* enabled = bpf_map_lookup_elem(&syscall_probe_enabled, &key);
+  if (!enabled) {
+    return true;
+  }
+
+  return *enabled != 0;
+}
+
 /* Return true when syscall is present in userspace-configured allowlist map. */
 static __always_inline bool is_syscall_allowed(__s32 nr) {
-  __u32 key = (__u32)nr;
-  __u8* enabled = bpf_map_lookup_elem(&syscall_allowlist, &key);
-  return enabled && (*enabled != 0);
+  (void)nr;
+  /* Capture-first mode: selected syscall allowlist is disabled for now. */
+  return true;
 }
 
 static __always_inline bool is_network_port_filter_enabled(void) {
@@ -265,60 +283,22 @@ static __always_inline bool is_port_allowed(__u32 port) {
 
 /* Return true when network event passes port allowlist policy. */
 static __always_inline bool is_network_port_allowed(__u32 src_port, __u32 dst_port) {
-  if (!is_network_port_filter_enabled()) {
-    return true;
-  }
-
-  /* Do not drop socket lifecycle records that do not carry port metadata. */
-  if (src_port == 0 && dst_port == 0) {
-    return true;
-  }
-
-  if (src_port != 0 && is_port_allowed(src_port)) {
-    return true;
-  }
-
-  if (dst_port != 0 && is_port_allowed(dst_port)) {
-    return true;
-  }
-
-  return false;
+  (void)src_port;
+  (void)dst_port;
+  /* Capture-first mode: network port allowlist filtering is disabled for now. */
+  return true;
 }
 
 /* Return true when PID filtering is active and current task is allowlisted. */
 static __always_inline bool is_current_pid_allowed(void) {
-  __u32 zero = 0;
-  __u8* filter_on = bpf_map_lookup_elem(&pid_filter_enabled, &zero);
-  if (!filter_on || *filter_on == 0) {
-    return true;
-  }
-
-  __u64 pid_tgid = bpf_get_current_pid_tgid();
-  __u32 pid = (__u32)pid_tgid;
-  __u32 tgid = (__u32)(pid_tgid >> 32);
-
-  __u8* pid_allowed = bpf_map_lookup_elem(&pid_allowlist, &pid);
-  if (pid_allowed && *pid_allowed != 0) {
-    return true;
-  }
-
-  __u8* tgid_allowed = bpf_map_lookup_elem(&pid_allowlist, &tgid);
-  return tgid_allowed && (*tgid_allowed != 0);
+  /* Capture-first mode: PID allowlist filtering is disabled for now. */
+  return true;
 }
 
 /* Return true when UID filtering is active and current uid is allowlisted. */
 static __always_inline bool is_current_uid_allowed(void) {
-  __u32 zero = 0;
-  __u8* filter_on = bpf_map_lookup_elem(&uid_filter_enabled, &zero);
-  if (!filter_on || *filter_on == 0) {
-    return true;
-  }
-
-  __u64 uid_gid = bpf_get_current_uid_gid();
-  __u32 uid = (__u32)uid_gid;
-
-  __u8* uid_allowed = bpf_map_lookup_elem(&uid_allowlist, &uid);
-  return uid_allowed && (*uid_allowed != 0);
+  /* Capture-first mode: UID allowlist filtering is disabled for now. */
+  return true;
 }
 
 /* Unified per-event gate for v1 PID/UID kernel-side filtering. */
@@ -654,7 +634,7 @@ static __always_inline int emit_network_exit_event(__u32 kind, __s64 ret_code) {
   out->hdr.ts_ns = bpf_ktime_get_ns();
   out->ret = (__s32)ret_code;
 
-  if (kind == NETWORK_ACCEPT && ret_code >= 0 && state->sockaddr_ptr != 0) {
+  if ((kind == NETWORK_ACCEPT || kind == NETWORK_RECVFROM) && ret_code >= 0 && state->sockaddr_ptr != 0) {
     __u32 len = 0;
     if (state->sockaddr_len_ptr != 0) {
       bpf_probe_read_user(&len, sizeof(len), (const void*)state->sockaddr_len_ptr);
@@ -890,10 +870,10 @@ int on_sys_exit_renameat2(struct trace_event_raw_sys_exit* ctx) {
   return emit_file_exit_event(FILE_RENAMEAT2, ctx->ret);
 }
 
-/* Raw syscall enter handler for allowlisted syscall telemetry capture. */
+/* Raw syscall enter handler for broad syscall telemetry capture. */
 SEC("tracepoint/raw_syscalls/sys_enter")
 int on_raw_sys_enter(struct trace_event_raw_sys_enter* ctx) {
-  if (!is_event_allowed()) {
+  if (!is_event_allowed() || !is_syscall_probe_enabled()) {
     return 0;
   }
 
@@ -920,7 +900,7 @@ int on_raw_sys_enter(struct trace_event_raw_sys_enter* ctx) {
 /* Raw syscall exit handler emits paired syscall event with accurate return code. */
 SEC("tracepoint/raw_syscalls/sys_exit")
 int on_raw_sys_exit(struct trace_event_raw_sys_exit* ctx) {
-  if (!is_event_allowed()) {
+  if (!is_event_allowed() || !is_syscall_probe_enabled()) {
     return 0;
   }
 
@@ -1096,6 +1076,106 @@ int on_sys_exit_listen(struct trace_event_raw_sys_exit* ctx) {
   }
 
   return emit_network_exit_event(NETWORK_LISTEN, ctx->ret);
+}
+
+/* sendto enter: capture fd/flags and destination socket address. */
+SEC("tracepoint/syscalls/sys_enter_sendto")
+int on_sys_enter_sendto(struct trace_event_raw_sys_enter* ctx) {
+  if (!is_event_allowed() || !is_network_probe_enabled(NETWORK_SENDTO)) {
+    return 0;
+  }
+
+  struct network_event* ev = reserve_network_event(NETWORK_SENDTO);
+  if (!ev) {
+    return 0;
+  }
+
+  struct network_state_value state = {};
+  state.ev = *ev;
+  state.ev.fd = (__s32)ctx->args[0];
+  state.ev.sock_type = (__s32)ctx->args[3]; /* send flags */
+
+  const void* sockaddr_ptr = (const void*)ctx->args[4];
+  __u32 sockaddr_len = (__u32)ctx->args[5];
+  parse_sockaddr_user(sockaddr_ptr, sockaddr_len, &state.ev.addr_family, &state.ev.dst_port,
+                      state.ev.dst_addr);
+
+  save_network_enter_state(NETWORK_SENDTO, &state, ev);
+  return 0;
+}
+
+/* sendto exit: emit finalized sendto event with ret outcome. */
+SEC("tracepoint/syscalls/sys_exit_sendto")
+int on_sys_exit_sendto(struct trace_event_raw_sys_exit* ctx) {
+  if (!is_event_allowed() || !is_network_probe_enabled(NETWORK_SENDTO)) {
+    return 0;
+  }
+
+  return emit_network_exit_event(NETWORK_SENDTO, ctx->ret);
+}
+
+/* recvfrom enter: capture fd/flags and source sockaddr pointers for exit parsing. */
+SEC("tracepoint/syscalls/sys_enter_recvfrom")
+int on_sys_enter_recvfrom(struct trace_event_raw_sys_enter* ctx) {
+  if (!is_event_allowed() || !is_network_probe_enabled(NETWORK_RECVFROM)) {
+    return 0;
+  }
+
+  struct network_event* ev = reserve_network_event(NETWORK_RECVFROM);
+  if (!ev) {
+    return 0;
+  }
+
+  struct network_state_value state = {};
+  state.ev = *ev;
+  state.ev.fd = (__s32)ctx->args[0];
+  state.ev.sock_type = (__s32)ctx->args[3]; /* recv flags */
+  state.sockaddr_ptr = (__u64)ctx->args[4];
+  state.sockaddr_len_ptr = (__u64)ctx->args[5];
+
+  save_network_enter_state(NETWORK_RECVFROM, &state, ev);
+  return 0;
+}
+
+/* recvfrom exit: emit finalized recvfrom event with source sockaddr and ret outcome. */
+SEC("tracepoint/syscalls/sys_exit_recvfrom")
+int on_sys_exit_recvfrom(struct trace_event_raw_sys_exit* ctx) {
+  if (!is_event_allowed() || !is_network_probe_enabled(NETWORK_RECVFROM)) {
+    return 0;
+  }
+
+  return emit_network_exit_event(NETWORK_RECVFROM, ctx->ret);
+}
+
+/* shutdown enter: capture fd and how value. */
+SEC("tracepoint/syscalls/sys_enter_shutdown")
+int on_sys_enter_shutdown(struct trace_event_raw_sys_enter* ctx) {
+  if (!is_event_allowed() || !is_network_probe_enabled(NETWORK_SHUTDOWN)) {
+    return 0;
+  }
+
+  struct network_event* ev = reserve_network_event(NETWORK_SHUTDOWN);
+  if (!ev) {
+    return 0;
+  }
+
+  struct network_state_value state = {};
+  state.ev = *ev;
+  state.ev.fd = (__s32)ctx->args[0];
+  state.ev.protocol = (__s32)ctx->args[1]; /* protocol field reused for shutdown how */
+
+  save_network_enter_state(NETWORK_SHUTDOWN, &state, ev);
+  return 0;
+}
+
+/* shutdown exit: emit finalized shutdown event with ret outcome. */
+SEC("tracepoint/syscalls/sys_exit_shutdown")
+int on_sys_exit_shutdown(struct trace_event_raw_sys_exit* ctx) {
+  if (!is_event_allowed() || !is_network_probe_enabled(NETWORK_SHUTDOWN)) {
+    return 0;
+  }
+
+  return emit_network_exit_event(NETWORK_SHUTDOWN, ctx->ret);
 }
 
 /* close enter: capture fd intent before close outcome is known. */
