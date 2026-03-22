@@ -1,0 +1,24 @@
+collector:
+  poll_timeout_ms: 200
+
+# Capture-first default for sandbox telemetry collection.
+domains:
+  process: true
+  file: true
+  syscall: true
+
+  # Minimal socket lifecycle metadata events.
+  network_socket: true
+
+  dns: false
+  http: false
+  https: false
+
+# v1 file probes currently implemented.
+file_probes:
+  openat: true
+  unlinkat: true
+  renameat2: true
+
+sink:
+  type: stdout_json
