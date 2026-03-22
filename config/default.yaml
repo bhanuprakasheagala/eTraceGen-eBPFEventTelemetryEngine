@@ -21,4 +21,7 @@ file_probes:
   renameat2: true
 
 sink:
-  type: stdout_json
+  # File sink is mandatory. Collector appends to this file and rotates by
+  # deleting/recreating once max_file_size_bytes is reached.
+  path: /var/log/etracegen/events.ndjson
+  max_file_size_bytes: 104857600

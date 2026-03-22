@@ -4,36 +4,53 @@
 /*
  * File Notes:
  * - Concrete sink that renders events as line-delimited JSON objects.
- * - Used as default human-readable output during development.
+ * - File-only sink with max-size rollover.
  */
 
+#include <cstdint>
+#include <fstream>
 #include <ostream>
+#include <string>
 
 #include "sinks/sink.h"
 
 namespace event_logger {
 
 /**
- * @brief Sink that writes one JSON object per event line.
+ * @brief Sink that writes one JSON object per event line into a file.
  */
 class JsonSink final : public Sink {
  public:
   /**
-   * @brief Construct JSON sink over caller-provided stream.
+   * @brief Construct file-backed JSON sink.
    *
-   * @param out Destination stream for serialized events.
+   * File is opened in append mode. When size reaches limit, sink deletes the
+   * file and starts a new one.
+   *
+   * @param file_path Destination NDJSON file path.
+   * @param max_file_size_bytes Max bytes before rollover. 0 disables rollover.
    */
-  explicit JsonSink(std::ostream& out) : out_(out) {}
+  JsonSink(std::string file_path, uint64_t max_file_size_bytes);
+
+  /**
+   * @brief Return true when sink is ready to write events.
+   */
+  bool IsReady() const { return ready_; }
 
   /**
    * @brief Serialize and write one typed event as JSON.
-   *
-   * @param event Typed event payload.
    */
   void Write(const EventVariant& event) override;
 
  private:
-  std::ostream& out_;
+  bool OpenFileAppend();
+  bool RotateIfNeeded(size_t next_record_bytes);
+
+  std::ofstream file_out_;
+  std::string file_path_;
+  uint64_t max_file_size_bytes_ = 0;
+  uint64_t current_file_size_bytes_ = 0;
+  bool ready_ = false;
 };
 
 }  // namespace event_logger
