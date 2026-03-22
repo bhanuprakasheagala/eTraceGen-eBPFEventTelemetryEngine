@@ -4,11 +4,17 @@
  * - Owns lifecycle: startup, event loop, shutdown, and coarse health counters.
  */
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cctype>
+#include <cstdint>
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <string>
 
 #include "collector/collector.h"
 #include "decoder/decoder.h"
@@ -20,14 +26,86 @@
 namespace {
 std::atomic<bool> g_running{true};
 
-/**
- * @brief Signal handler used to request graceful shutdown.
- *
- * @param sig Received signal number (unused).
- *
- * @note Handler intentionally performs only an atomic flag update.
- */
+struct SinkRuntimeConfig {
+  std::string path = "/var/log/etracegen/events.ndjson";
+  uint64_t max_file_size_bytes = 100ULL * 1024ULL * 1024ULL;
+};
+
 void OnSignal(int /*sig*/) { g_running = false; }
+
+std::string Trim(std::string s) {
+  const auto not_space = [](unsigned char c) { return !std::isspace(c); };
+  s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_space));
+  s.erase(std::find_if(s.rbegin(), s.rend(), not_space).base(), s.end());
+  return s;
+}
+
+std::string DefaultConfigPath() {
+  const char* env_path = std::getenv("ETRACEGEN_CONFIG");
+  return env_path ? env_path : "config/default.yaml";
+}
+
+SinkRuntimeConfig LoadSinkRuntimeConfig() {
+  SinkRuntimeConfig cfg;
+
+  std::ifstream in(DefaultConfigPath());
+  if (!in.is_open()) {
+    return cfg;
+  }
+
+  bool in_sink = false;
+  std::string line;
+  while (std::getline(in, line)) {
+    const auto hash_pos = line.find('#');
+    if (hash_pos != std::string::npos) {
+      line = line.substr(0, hash_pos);
+    }
+
+    const std::string trimmed = Trim(line);
+    if (trimmed.empty()) {
+      continue;
+    }
+
+    if (trimmed == "sink:") {
+      in_sink = true;
+      continue;
+    }
+
+    if (trimmed.back() == ':' && trimmed != "sink:") {
+      in_sink = false;
+      continue;
+    }
+
+    if (!in_sink) {
+      continue;
+    }
+
+    const auto colon = trimmed.find(':');
+    if (colon == std::string::npos) {
+      continue;
+    }
+
+    const std::string key = Trim(trimmed.substr(0, colon));
+    std::string value = Trim(trimmed.substr(colon + 1));
+
+    if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
+                              (value.front() == '\'' && value.back() == '\''))) {
+      value = value.substr(1, value.size() - 2);
+    }
+
+    if (key == "path") {
+      cfg.path = value;
+    } else if (key == "max_file_size_bytes") {
+      try {
+        cfg.max_file_size_bytes = std::stoull(value);
+      } catch (...) {
+        // Keep default when parse fails.
+      }
+    }
+  }
+
+  return cfg;
+}
 
 void PrintKernelStats(const event_logger::KernelBpfStats& s, const char* prefix) {
   std::cerr << prefix << " ringbuf_reserve_fail=" << s.ringbuf_reserve_fail
@@ -52,7 +130,8 @@ void PrintStartupReport(const event_logger::CollectorStartupReport& r) {
             << " runtime_config_loaded=" << (r.runtime_config_loaded ? "true" : "false")
             << " map_events_found=" << (r.map_events_found ? "true" : "false")
             << " map_bpf_stats_found=" << (r.map_bpf_stats_found ? "true" : "false")
-            << " map_file_probe_enabled_found=" << (r.map_file_probe_enabled_found ? "true" : "false")
+            << " map_file_probe_enabled_found="
+            << (r.map_file_probe_enabled_found ? "true" : "false")
             << " map_syscall_allowlist_found=" << (r.map_syscall_allowlist_found ? "true" : "false")
             << " map_pid_allowlist_found=" << (r.map_pid_allowlist_found ? "true" : "false")
             << " map_uid_allowlist_found=" << (r.map_uid_allowlist_found ? "true" : "false")
@@ -76,17 +155,18 @@ void PrintStartupReport(const event_logger::CollectorStartupReport& r) {
   }
   std::cerr << "\n";
 }
+
+std::unique_ptr<event_logger::JsonSink> BuildSink() {
+  const SinkRuntimeConfig cfg = LoadSinkRuntimeConfig();
+  auto sink = std::make_unique<event_logger::JsonSink>(cfg.path, cfg.max_file_size_bytes);
+
+  std::cerr << "[sink] file_json path=" << cfg.path
+            << " max_file_size_bytes=" << cfg.max_file_size_bytes << "\n";
+
+  return sink;
+}
 }  // namespace
 
-/**
- * @brief eTraceGen process entry point.
- *
- * Initializes pipeline components, starts collector ingestion, executes
- * the poll loop, and emits shutdown summaries.
- *
- * @return 0 on graceful completion.
- * @return 1 when collector startup fails.
- */
 int main() {
   std::signal(SIGINT, OnSignal);
   std::signal(SIGTERM, OnSignal);
@@ -95,7 +175,12 @@ int main() {
   event_logger::Decoder decoder;
   event_logger::Enricher enricher;
   event_logger::PolicyEngine policy;
-  event_logger::JsonSink sink(std::cout);
+  auto sink = BuildSink();
+  if (!sink || !sink->IsReady()) {
+    std::cerr << "failed to initialize file sink; check sink.path permissions\n";
+    return 1;
+  }
+
   event_logger::Metrics metrics;
 
   const bool started = collector->Start([&](std::span<const unsigned char> raw) {
@@ -115,7 +200,7 @@ int main() {
       return;
     }
 
-    sink.Write(event);
+    sink->Write(event);
   });
 
   event_logger::CollectorStartupReport startup_report{};
