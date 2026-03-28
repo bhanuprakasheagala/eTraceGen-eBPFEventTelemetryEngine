@@ -62,6 +62,7 @@ struct CollectorStartupReport {
   bool map_network_probe_enabled_found = false;
   bool map_network_port_allowlist_found = false;
   bool map_network_port_filter_enabled_found = false;
+  bool map_suppress_tgid_found = false;
 
   bool file_probe_toggles_applied = false;
   uint32_t syscall_allowlist_applied_count = 0;

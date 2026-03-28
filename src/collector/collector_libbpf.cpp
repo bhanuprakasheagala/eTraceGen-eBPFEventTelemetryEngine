@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 #include <sys/utsname.h>
+#include <unistd.h>
 
 namespace event_logger {
 namespace {
@@ -416,7 +417,7 @@ bool ApplyNetworkProbeConfig(int map_fd, bool enabled) {
       NETWORK_SOCKET, NETWORK_CONNECT, NETWORK_ACCEPT, NETWORK_BIND, NETWORK_LISTEN,
       NETWORK_CLOSE, NETWORK_SENDTO, NETWORK_RECVFROM, NETWORK_SHUTDOWN,
   };
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 9; ++i) {
     uint32_t key = keys[i];
     if (bpf_map_update_elem(map_fd, &key, &value, BPF_ANY) != 0) {
       std::cerr << "[collector] failed to set network probe toggle key=" << key << "\n";
@@ -588,6 +589,7 @@ class LibbpfCollector final : public Collector {
         bpf_object__find_map_fd_by_name(obj_, "network_port_allowlist");
     const int network_port_filter_enabled_fd =
         bpf_object__find_map_fd_by_name(obj_, "network_port_filter_enabled");
+    const int suppress_tgid_fd = bpf_object__find_map_fd_by_name(obj_, "suppress_tgid");
 
     startup_report_.map_events_found = events_fd >= 0;
     startup_report_.map_bpf_stats_found = stats_fd >= 0;
@@ -598,6 +600,7 @@ class LibbpfCollector final : public Collector {
     startup_report_.map_network_probe_enabled_found = network_probe_enabled_fd >= 0;
     startup_report_.map_network_port_allowlist_found = network_port_allowlist_fd >= 0;
     startup_report_.map_network_port_filter_enabled_found = network_port_filter_enabled_fd >= 0;
+    startup_report_.map_suppress_tgid_found = suppress_tgid_fd >= 0;
 
     if (!startup_report_.map_bpf_stats_found) {
       AppendDegradeReason(&startup_report_, "bpf_stats map missing; kernel diagnostics unavailable");
@@ -643,6 +646,11 @@ class LibbpfCollector final : public Collector {
     if (uid_filter_enabled_fd < 0) {
       AppendDegradeReason(&startup_report_,
                           "uid_filter_enabled map missing; uid filtering activation unavailable");
+    }
+
+    if (suppress_tgid_fd < 0) {
+      AppendDegradeReason(&startup_report_,
+                          "suppress_tgid map missing; self-event suppression in-kernel disabled");
     }
 
     const bool process_domain_enabled = runtime_cfg.domains.process;
@@ -703,6 +711,16 @@ class LibbpfCollector final : public Collector {
     if (!SetAllowlistEnabled(network_port_filter_enabled_fd, network_port_filter_should_enable,
                              "network_port_filter")) {
       AppendDegradeReason(&startup_report_, "network port filter enable flag apply failed");
+    }
+
+
+    if (suppress_tgid_fd >= 0) {
+      const uint32_t key = 0;
+      const uint32_t value = static_cast<uint32_t>(::getpid());
+      if (bpf_map_update_elem(suppress_tgid_fd, &key, &value, BPF_ANY) != 0) {
+        std::cerr << "[collector] failed to set suppress_tgid=" << value << "\n";
+        AppendDegradeReason(&startup_report_, "suppress_tgid apply failed");
+      }
     }
 
     if (pid_filter_should_enable && startup_report_.pid_allowlist_applied_count == 0) {

@@ -15,6 +15,8 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <unistd.h>
 
 #include "collector/collector.h"
 #include "decoder/decoder.h"
@@ -43,6 +45,26 @@ std::string Trim(std::string s) {
 std::string DefaultConfigPath() {
   const char* env_path = std::getenv("ETRACEGEN_CONFIG");
   return env_path ? env_path : "config/default.yaml";
+}
+
+/**
+ *  Return true when event originates from this collector process.
+ *
+ * Intent:
+ * Prevent user-space self-feedback loops on kernels where self-filtering BPF
+ * maps are not available in the loaded object.
+ */
+bool IsSelfEvent(const event_logger::EventVariant& event, uint32_t self_tgid) {
+  return std::visit(
+      [self_tgid](const auto& ev) -> bool {
+        if (ev.hdr.tgid == self_tgid || ev.hdr.pid == self_tgid) {
+          return true;
+        }
+
+        const std::string_view comm(ev.hdr.comm);
+        return comm.rfind("etracegen", 0) == 0;
+      },
+      event);
 }
 
 SinkRuntimeConfig LoadSinkRuntimeConfig() {
@@ -141,6 +163,8 @@ void PrintStartupReport(const event_logger::CollectorStartupReport& r) {
             << (r.map_network_port_allowlist_found ? "true" : "false")
             << " map_network_port_filter_enabled_found="
             << (r.map_network_port_filter_enabled_found ? "true" : "false")
+            << " map_suppress_tgid_found="
+            << (r.map_suppress_tgid_found ? "true" : "false")
             << " file_probe_toggles_applied=" << (r.file_probe_toggles_applied ? "true" : "false")
             << " syscall_allowlist_applied_count=" << r.syscall_allowlist_applied_count
             << " pid_allowlist_applied_count=" << r.pid_allowlist_applied_count
@@ -170,6 +194,7 @@ std::unique_ptr<event_logger::JsonSink> BuildSink() {
 int main() {
   std::signal(SIGINT, OnSignal);
   std::signal(SIGTERM, OnSignal);
+  const uint32_t self_tgid = static_cast<uint32_t>(::getpid());
 
   auto* collector = event_logger::CreateCollector();
   event_logger::Decoder decoder;
@@ -191,9 +216,12 @@ int main() {
       metrics.IncrementDropped();
       return;
     }
-
     metrics.IncrementDecoded();
     auto event = *decoded;
+
+    if (IsSelfEvent(event, self_tgid)) {
+      return;
+    }
 
     enricher.Enrich(event);
     if (!policy.Allow(event)) {
