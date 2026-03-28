@@ -143,6 +143,14 @@ struct {
   __type(value, __u8);
 } uid_filter_enabled SEC(".maps");
 
+/* Single-entry array stores collector TGID to suppress self-generated events. */
+struct {
+  __uint(type, BPF_MAP_TYPE_ARRAY);
+  __uint(max_entries, 1);
+  __type(key, __u32);
+  __type(value, __u32);
+} suppress_tgid SEC(".maps");
+
 /* Runtime network domain probe toggles keyed by network_event_kind. */
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -314,9 +322,22 @@ static __always_inline bool is_current_uid_allowed(void) {
   return true;
 }
 
-/* Unified per-event gate for v1 PID/UID kernel-side filtering. */
+/* Return true when current task is not the userspace collector itself. */
+static __always_inline bool is_not_suppressed_self(void) {
+  __u32 key = 0;
+  __u32* suppressed = bpf_map_lookup_elem(&suppress_tgid, &key);
+  if (!suppressed || *suppressed == 0) {
+    return true;
+  }
+
+  __u64 pid_tgid = bpf_get_current_pid_tgid();
+  __u32 tgid = (__u32)(pid_tgid >> 32);
+  return tgid != *suppressed;
+}
+
+/* Unified per-event gate for v1 PID/UID kernel-side filtering plus self-suppression. */
 static __always_inline bool is_event_allowed(void) {
-  return is_current_pid_allowed() && is_current_uid_allowed();
+  return is_not_suppressed_self() && is_current_pid_allowed() && is_current_uid_allowed();
 }
 
 /* Read parent TGID from current task for portable PPID derivation. */
