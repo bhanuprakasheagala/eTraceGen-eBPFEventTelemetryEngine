@@ -33,6 +33,11 @@ class JsonSink final : public Sink {
   JsonSink(std::string file_path, uint64_t max_file_size_bytes);
 
   /**
+   * @brief Flush pending buffered data before sink teardown.
+   */
+  ~JsonSink() override;
+
+  /**
    * @brief Return true when sink is ready to write events.
    */
   bool IsReady() const { return ready_; }
@@ -43,13 +48,31 @@ class JsonSink final : public Sink {
   void Write(const EventVariant& event) override;
 
  private:
+  /**
+   *  Open sink file in append mode and initialize file size state.
+   */
   bool OpenFileAppend();
+  /**
+   *  Rotate sink file when appending next record would exceed max size.
+   */
   bool RotateIfNeeded(size_t next_record_bytes);
+  /**
+   *  Periodic flush gate balancing durability and syscall overhead.
+   */
+  void MaybeFlush();
+  /**
+   *  Force immediate flush; used during rotation and teardown.
+   */
+  void ForceFlush();
 
   std::ofstream file_out_;
   std::string file_path_;
   uint64_t max_file_size_bytes_ = 0;
   uint64_t current_file_size_bytes_ = 0;
+
+  uint64_t pending_records_since_flush_ = 0;
+  uint64_t last_flush_mono_ns_ = 0;
+
   bool ready_ = false;
 };
 
