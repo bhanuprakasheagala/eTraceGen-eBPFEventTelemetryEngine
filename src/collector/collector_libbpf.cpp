@@ -74,7 +74,7 @@ struct RuntimeConfig {
 };
 
 /**
- *   Best-effort architecture string for startup diagnostics.
+ *  Best-effort architecture string for startup diagnostics.
  *
  * Syscall numbers are architecture-specific, so logging machine architecture
  * helps explain why a numeric syscall allowlist may need adjustment per host.
@@ -88,7 +88,7 @@ std::string DetectMachineArchitecture() {
 }
 
 /**
- *   Emit portability note when syscall allowlist is numeric and active.
+ *  Emit portability note when syscall allowlist is numeric and active.
  */
 void LogSyscallAllowlistPortability(const RuntimeConfig& cfg) {
   if (cfg.syscall_allowlist.empty()) {
@@ -130,6 +130,9 @@ std::string DefaultConfigPath() {
   return env_path ? env_path : "config/default.yaml";
 }
 
+/**
+ *  Trim leading/trailing whitespace for lightweight config parsing.
+ */
 std::string Trim(std::string s) {
   const auto not_space = [](unsigned char c) { return !std::isspace(c); };
   s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_space));
@@ -137,6 +140,9 @@ std::string Trim(std::string s) {
   return s;
 }
 
+/**
+ *  Parse strict `true`/`false` string into boolean output.
+ */
 bool ParseBool(std::string value, bool* out) {
   if (!out) {
     return false;
@@ -157,6 +163,9 @@ bool ParseBool(std::string value, bool* out) {
   return false;
 }
 
+/**
+ *  Parse inline integer list into int32 allowlist.
+ */
 void ParseInt32AllowlistInline(const std::string& value, std::vector<int32_t>* out) {
   if (!out) {
     return;
@@ -186,6 +195,9 @@ void ParseInt32AllowlistInline(const std::string& value, std::vector<int32_t>* o
   }
 }
 
+/**
+ *  Parse inline integer list into uint32 allowlist.
+ */
 void ParseUint32AllowlistInline(const std::string& value, std::vector<uint32_t>* out) {
   if (!out) {
     return;
@@ -337,6 +349,9 @@ bool LoadRuntimeConfig(const std::string& path, RuntimeConfig* cfg) {
   return true;
 }
 
+/**
+ *  Append a startup degrade reason while preserving prior context.
+ */
 void AppendDegradeReason(CollectorStartupReport* report, const std::string& message) {
   if (!report || message.empty()) {
     return;
