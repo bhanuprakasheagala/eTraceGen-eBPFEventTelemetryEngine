@@ -15,7 +15,6 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <unistd.h>
 
 #include "collector/collector.h"
@@ -33,8 +32,19 @@ struct SinkRuntimeConfig {
   uint64_t max_file_size_bytes = 100ULL * 1024ULL * 1024ULL;
 };
 
+/**
+ * @brief Signal handler that requests graceful shutdown.
+ *
+ * @param sig Received POSIX signal number (unused).
+ */
 void OnSignal(int /*sig*/) { g_running = false; }
 
+/**
+ * @brief Trim leading and trailing ASCII whitespace.
+ *
+ * @param s Input string.
+ * @return Whitespace-trimmed string copy.
+ */
 std::string Trim(std::string s) {
   const auto not_space = [](unsigned char c) { return !std::isspace(c); };
   s.erase(s.begin(), std::find_if(s.begin(), s.end(), not_space));
@@ -42,17 +52,20 @@ std::string Trim(std::string s) {
   return s;
 }
 
+/**
+ * @brief Return runtime config path, optionally overridden by env var.
+ */
 std::string DefaultConfigPath() {
   const char* env_path = std::getenv("ETRACEGEN_CONFIG");
   return env_path ? env_path : "config/default.yaml";
 }
 
 /**
- *  Return true when event originates from this collector process.
+ * @brief Return true when event originates from this collector process.
  *
  * Intent:
- * Prevent user-space self-feedback loops on kernels where self-filtering BPF
- * maps are not available in the loaded object.
+ * Suppress collector self-events by pid/tgid so log writes do not re-enter
+ * the telemetry stream.
  */
 bool IsSelfEvent(const event_logger::EventVariant& event, uint32_t self_tgid) {
   return std::visit(
@@ -60,13 +73,22 @@ bool IsSelfEvent(const event_logger::EventVariant& event, uint32_t self_tgid) {
         if (ev.hdr.tgid == self_tgid || ev.hdr.pid == self_tgid) {
           return true;
         }
-
-        const std::string_view comm(ev.hdr.comm);
-        return comm.rfind("etracegen", 0) == 0;
+        return false;
       },
       event);
 }
 
+/**
+ * @brief Parse sink settings from runtime config file.
+ *
+ * Parses a minimal subset of YAML-like keys under `sink:`:
+ * - `path`
+ * - `max_file_size_bytes`
+ *
+ * Parser is intentionally permissive and keeps defaults on parse errors.
+ *
+ * @return Resolved sink runtime configuration.
+ */
 SinkRuntimeConfig LoadSinkRuntimeConfig() {
   SinkRuntimeConfig cfg;
 
@@ -129,6 +151,12 @@ SinkRuntimeConfig LoadSinkRuntimeConfig() {
   return cfg;
 }
 
+/**
+ * @brief Emit one kernel-side diagnostics line to stderr.
+ *
+ * @param s Aggregated kernel BPF counters.
+ * @param prefix Label used to distinguish startup vs periodic/final reports.
+ */
 void PrintKernelStats(const event_logger::KernelBpfStats& s, const char* prefix) {
   std::cerr << prefix << " ringbuf_reserve_fail=" << s.ringbuf_reserve_fail
             << " file_state_save_fail=" << s.file_state_save_fail
@@ -142,6 +170,11 @@ void PrintKernelStats(const event_logger::KernelBpfStats& s, const char* prefix)
             << " network_state_miss=" << s.network_state_miss << "\n";
 }
 
+/**
+ * @brief Emit collector startup capability/degradation report.
+ *
+ * @param r Collector startup report produced by collector backend.
+ */
 void PrintStartupReport(const event_logger::CollectorStartupReport& r) {
   std::cerr << "startup_report backend=" << r.backend_name
             << " bpf_object_path=" << (r.bpf_object_path.empty() ? "n/a" : r.bpf_object_path)
@@ -180,6 +213,11 @@ void PrintStartupReport(const event_logger::CollectorStartupReport& r) {
   std::cerr << "\n";
 }
 
+/**
+ * @brief Build the file-backed JSON sink from config defaults/overrides.
+ *
+ * @return Initialized sink instance (may be not-ready when open fails).
+ */
 std::unique_ptr<event_logger::JsonSink> BuildSink() {
   const SinkRuntimeConfig cfg = LoadSinkRuntimeConfig();
   auto sink = std::make_unique<event_logger::JsonSink>(cfg.path, cfg.max_file_size_bytes);
@@ -208,6 +246,8 @@ int main() {
 
   event_logger::Metrics metrics;
 
+  // Raw callback is the top of the userspace event path:
+  // bytes -> decode -> self-filter -> enrich -> policy -> sink.
   const bool started = collector->Start([&](std::span<const unsigned char> raw) {
     metrics.IncrementReceived();
 
@@ -244,6 +284,7 @@ int main() {
   using clock = std::chrono::steady_clock;
   auto next_stats_report = clock::now() + std::chrono::seconds(30);
 
+  // Main loop keeps ingestion responsive and emits periodic kernel diagnostics.
   while (g_running) {
     collector->PollOnce(200);
 
