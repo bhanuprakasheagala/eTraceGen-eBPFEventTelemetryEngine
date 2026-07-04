@@ -581,6 +581,18 @@ void WriteProcessInfo(std::ostream& out, const ProcessInfoSnapshot& p) {
 }
 
 /**
+ *  Serialize a single network endpoint into JSON fields.
+ */
+void WriteNetworkEndpoint(std::ostream& out, const std::string& label, const network_endpoint& ep) {
+  const size_t addr_len = std::min<size_t>(ep.addr_len, sizeof(ep.addr));
+  out << ",\"" << label << "_family\":" << ep.family
+      << ",\"" << label << "_port\":" << ep.port
+      << ",\"" << label << "_addr_len\":" << ep.addr_len
+      << ",\"" << label << "_addr\":\"" << BytesToHex(ep.addr, addr_len) << "\""
+      << ",\"" << label << "_path\":\"" << JsonEscape(ep.path) << "\"";
+}
+
+/**
  *  Serialize typed payload into one JSON object body.
  *
  * Includes both raw event fields and normalized process_info context for
@@ -615,7 +627,7 @@ void WriteEventBody(std::ostream& out, const EventVariant& event) {
               << ",\"syscall_nr\":" << ev.syscall_nr
               << ",\"ret\":" << ev.ret;
         } else if constexpr (std::is_same_v<T, network_event>) {
-          out << ",\"event_name\":\"" << NetworkEventKindToString(ev.kind) << "\"
+          out << ",\"event_name\":\"" << NetworkEventKindToString(ev.kind) << "\""
               << ",\"kind\":" << ev.kind
               << ",\"fd\":" << ev.fd
               << ",\"peer_fd\":" << ev.peer_fd
@@ -632,8 +644,8 @@ void WriteEventBody(std::ostream& out, const EventVariant& event) {
               << ",\"optval_prefix\":\"" << JsonEscape(std::string(reinterpret_cast<const char*>(ev.optval_prefix), sizeof(ev.optval_prefix))) << "\""
               << ",\"flow_id\":" << ev.flow_id
               << ",\"socket_id\":" << ev.socket_id
-              << ",\"direction\":\"" << NetworkDirectionToString(ev.direction) << "\"
-              << ",\"transport\":\"" << NetworkTransportToString(ev.transport) << "\"
+              << ",\"direction\":\"" << NetworkDirectionToString(ev.direction) << "\""
+              << ",\"transport\":\"" << NetworkTransportToString(ev.transport) << "\""
               << ",\"bytes_requested\":" << ev.bytes_requested
               << ",\"bytes_transferred\":" << ev.bytes_transferred
               << ",\"bytes_captured\":" << ev.bytes_captured
