@@ -361,6 +361,85 @@ const char* EventTypeToString(uint32_t type) {
   }
 }
 
+const char* NetworkEventKindToString(uint32_t kind) {
+  switch (kind) {
+    case NETWORK_SOCKET:
+      return "socket";
+    case NETWORK_CONNECT:
+      return "connect";
+    case NETWORK_ACCEPT:
+      return "accept";
+    case NETWORK_BIND:
+      return "bind";
+    case NETWORK_LISTEN:
+      return "listen";
+    case NETWORK_CLOSE:
+      return "close";
+    case NETWORK_SENDTO:
+      return "sendto";
+    case NETWORK_RECVFROM:
+      return "recvfrom";
+    case NETWORK_SHUTDOWN:
+      return "shutdown";
+    case NETWORK_SOCKETPAIR:
+      return "socketpair";
+    case NETWORK_ACCEPT4:
+      return "accept4";
+    case NETWORK_GETSOCKNAME:
+      return "getsockname";
+    case NETWORK_GETPEERNAME:
+      return "getpeername";
+    case NETWORK_SETSOCKOPT:
+      return "setsockopt";
+    case NETWORK_GETSOCKOPT:
+      return "getsockopt";
+    case NETWORK_SENDMSG:
+      return "sendmsg";
+    case NETWORK_RECVMSG:
+      return "recvmsg";
+    case NETWORK_READ:
+      return "read";
+    case NETWORK_WRITE:
+      return "write";
+    case NETWORK_READV:
+      return "readv";
+    case NETWORK_WRITEV:
+      return "writev";
+    case NETWORK_SENDMMSG:
+      return "sendmmsg";
+    case NETWORK_RECVMMSG:
+      return "recvmmsg";
+    default:
+      return "unknown";
+  }
+}
+
+const char* NetworkDirectionToString(uint32_t direction) {
+  switch (direction) {
+    case NETWORK_DIRECTION_INBOUND:
+      return "inbound";
+    case NETWORK_DIRECTION_OUTBOUND:
+      return "outbound";
+    default:
+      return "unknown";
+  }
+}
+
+const char* NetworkTransportToString(uint32_t transport) {
+  switch (transport) {
+    case NETWORK_TRANSPORT_TCP:
+      return "tcp";
+    case NETWORK_TRANSPORT_UDP:
+      return "udp";
+    case NETWORK_TRANSPORT_UNIX:
+      return "unix";
+    case NETWORK_TRANSPORT_RAW:
+      return "raw";
+    default:
+      return "unknown";
+  }
+}
+
 /**
  *  Escape raw text for safe JSON string embedding.
  */
@@ -409,7 +488,45 @@ std::string JsonEscape(const char* s) {
   return out;
 }
 
-std::string JsonEscape(const std::string& s) { return JsonEscape(s.c_str()); }
+std::string JsonEscape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size());
+  for (unsigned char c : s) {
+    switch (c) {
+      case '"':
+        out += "\\\"";
+        break;
+      case '\\':
+        out += "\\\\";
+        break;
+      case '\b':
+        out += "\\b";
+        break;
+      case '\f':
+        out += "\\f";
+        break;
+      case '\n':
+        out += "\\n";
+        break;
+      case '\r':
+        out += "\\r";
+        break;
+      case '\t':
+        out += "\\t";
+        break;
+      default:
+        if (c < 0x20) {
+          char buf[7] = {};
+          std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+          out += buf;
+        } else {
+          out.push_back(static_cast<char>(c));
+        }
+        break;
+    }
+  }
+  return out;
+}
 
 /**
  *  Render fixed-size binary address bytes as lowercase hex string.
@@ -498,17 +615,31 @@ void WriteEventBody(std::ostream& out, const EventVariant& event) {
               << ",\"syscall_nr\":" << ev.syscall_nr
               << ",\"ret\":" << ev.ret;
         } else if constexpr (std::is_same_v<T, network_event>) {
-          out << ",\"kind\":" << ev.kind
+          out << ",\"event_name\":\"" << NetworkEventKindToString(ev.kind) << "\"
+              << ",\"kind\":" << ev.kind
               << ",\"fd\":" << ev.fd
+              << ",\"peer_fd\":" << ev.peer_fd
               << ",\"ret\":" << ev.ret
               << ",\"domain\":" << ev.domain
               << ",\"sock_type\":" << ev.sock_type
               << ",\"protocol\":" << ev.protocol
-              << ",\"addr_family\":" << ev.addr_family
-              << ",\"src_port\":" << ev.src_port
-              << ",\"dst_port\":" << ev.dst_port
-              << ",\"src_addr_hex\":\"" << BytesToHex(ev.src_addr, sizeof(ev.src_addr)) << "\""
-              << ",\"dst_addr_hex\":\"" << BytesToHex(ev.dst_addr, sizeof(ev.dst_addr)) << "\"";
+              << ",\"flags\":" << ev.flags
+              << ",\"backlog\":" << ev.backlog
+              << ",\"how\":" << ev.how
+              << ",\"opt_level\":" << ev.opt_level
+              << ",\"opt_name\":" << ev.opt_name
+              << ",\"opt_len\":" << ev.opt_len
+              << ",\"optval_prefix\":\"" << JsonEscape(std::string(reinterpret_cast<const char*>(ev.optval_prefix), sizeof(ev.optval_prefix))) << "\""
+              << ",\"flow_id\":" << ev.flow_id
+              << ",\"socket_id\":" << ev.socket_id
+              << ",\"direction\":\"" << NetworkDirectionToString(ev.direction) << "\"
+              << ",\"transport\":\"" << NetworkTransportToString(ev.transport) << "\"
+              << ",\"bytes_requested\":" << ev.bytes_requested
+              << ",\"bytes_transferred\":" << ev.bytes_transferred
+              << ",\"bytes_captured\":" << ev.bytes_captured
+              << ",\"bytes_truncated\":" << ev.bytes_truncated;
+          WriteNetworkEndpoint(out, "local", ev.local);
+          WriteNetworkEndpoint(out, "remote", ev.remote);
         }
       },
       event);

@@ -429,10 +429,15 @@ bool ApplyNetworkProbeConfig(int map_fd, bool enabled) {
   const uint8_t value = enabled ? 1U : 0U;
 
   const uint32_t keys[] = {
-      NETWORK_SOCKET, NETWORK_CONNECT, NETWORK_ACCEPT, NETWORK_BIND, NETWORK_LISTEN,
-      NETWORK_CLOSE, NETWORK_SENDTO, NETWORK_RECVFROM, NETWORK_SHUTDOWN,
+      NETWORK_SOCKET,     NETWORK_SOCKETPAIR, NETWORK_CONNECT,    NETWORK_BIND,
+      NETWORK_LISTEN,     NETWORK_ACCEPT,     NETWORK_ACCEPT4,    NETWORK_GETSOCKNAME,
+      NETWORK_GETPEERNAME, NETWORK_SETSOCKOPT, NETWORK_GETSOCKOPT, NETWORK_CLOSE,
+      NETWORK_SENDTO,     NETWORK_RECVFROM,   NETWORK_SHUTDOWN,
+      NETWORK_SENDMSG,    NETWORK_RECVMSG,    NETWORK_READ,       NETWORK_WRITE,
+      NETWORK_READV,      NETWORK_WRITEV,     NETWORK_SENDMMSG,   NETWORK_RECVMMSG,
   };
-  for (int i = 0; i < 9; ++i) {
+  const size_t key_count = sizeof(keys) / sizeof(keys[0]);
+  for (size_t i = 0; i < key_count; ++i) {
     uint32_t key = keys[i];
     if (bpf_map_update_elem(map_fd, &key, &value, BPF_ANY) != 0) {
       std::cerr << "[collector] failed to set network probe toggle key=" << key << "\n";
