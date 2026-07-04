@@ -2,29 +2,21 @@
 
 This is the runtime story in the same order the code executes.
 
-## 1. Build-Time Branching Chooses Collector Backend
-`CMakeLists.txt` checks for `libbpf`.
-- If found: compile `collector_libbpf.cpp`
-- Else: compile `collector_stub.cpp`
-
-Why this exists:
-- development environments differ
-- portability means "run with best available backend"
+## 1. Build and Runtime Context
+`eTraceGen` is Linux-only and builds with libbpf collector support.
+`CMakeLists.txt` enforces Linux host build and required `libbpf` discovery.
 
 Relevant file: `../CMakeLists.txt`
 
-## 2. Process Startup and Control Signals
+## 2. Process Startup and Signals
 `main()` installs signal handlers for `SIGINT` and `SIGTERM`.
 - `g_running = true` initially
 - on signal, handler flips `g_running = false`
 
-Why this exists:
-- deterministic shutdown without abrupt teardown
-
 Relevant file: `../src/main.cpp`
 
 ## 3. Pipeline Construction
-`main()` constructs all pipeline blocks:
+`main()` constructs:
 - `Collector*` from `CreateCollector()`
 - `Decoder`
 - `Enricher`
@@ -32,13 +24,8 @@ Relevant file: `../src/main.cpp`
 - `JsonSink`
 - `Metrics`
 
-Why objects are separate:
-- each stage can evolve independently
-- easier replacement and testing
-
 ## 4. Collector Start Registers Event Callback
-`collector->Start(callback)` starts event ingestion.
-The callback is the core data path.
+`collector->Start(callback)` initializes libbpf object, applies runtime config maps, attaches programs, creates ring buffer, and starts ingestion.
 
 Inside callback:
 1. increment `received`
@@ -49,22 +36,15 @@ Inside callback:
 6. apply policy
 7. write JSON
 
-Why callback-driven design:
-- collector only handles ingress mechanics
-- business pipeline remains backend-agnostic
-
-## 5. Poll Loop Runs Until Shutdown
+## 5. Poll Loop and Periodic Stats
+Main loop:
 `while (g_running) { collector->PollOnce(200); }`
 
-Why polling:
-- simple, explicit event loop
-- easy to add periodic tasks later (stats flush, config reload)
+Every 30 seconds, user space reads kernel BPF stats and prints a periodic line.
 
-## 6. Stop and Report
-`collector->Stop()` releases resources.
-Program prints metric counters.
-
-Why this matters:
-- transparent operational behavior
-- easy sanity checks during development
-
+## 6. Stop and Shutdown Report
+On shutdown:
+1. read final kernel stats
+2. stop collector and release libbpf resources
+3. print pipeline counters (`received`, `decoded`, `dropped`)
+4. print final kernel stats when available

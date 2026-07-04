@@ -1,59 +1,51 @@
 # Kernel eBPF Program Walk
 
-Source: `../../bpf/event_logger.bpf.c`
+Source entrypoint: `../../bpf/event_logger.bpf.c`
+
+## Source Layout
+- `../../bpf/event_logger_common.bpf.h`: shared maps, helpers, schema glue, and event builders
+- `../../bpf/event_logger_process.bpf.c`: process lifecycle handlers
+- `../../bpf/event_logger_file.bpf.c`: file enter/exit handlers
+- `../../bpf/event_logger_syscall.bpf.c`: raw syscall telemetry
+- `../../bpf/event_logger_network.bpf.c`: socket-level network handlers
+
+The aggregator file exists so the build only needs one BPF object path even though the implementation is split into domain-specific translation units.
 
 ## Program Intent
-Capture kernel events with minimal processing and emit typed records via ring buffer.
+Capture high-value kernel events with bounded logic and emit typed ring-buffer records.
 
-## Sections and Components
-- BPF map `events` (ring buffer)
-- BPF map `file_enter_state` (LRU hash) for file enter/exit correlation
-- BPF map `syscall_enter_state` (LRU hash) for syscall enter/exit correlation
-- BPF map `network_enter_state` (LRU hash) for network enter/exit correlation
-- BPF map `file_probe_enabled` (array) for runtime file probe toggles
-- BPF map `pid_allowlist` + `uid_allowlist` (hash) for identity filters
-- BPF map `pid_filter_enabled` + `uid_filter_enabled` (array) for filter activation gates
-- BPF map `syscall_allowlist` (hash) for allowlist-first syscall telemetry
-- BPF map `network_probe_enabled` (array) for network probe toggles
-- BPF map `network_port_allowlist` (hash) for port filter rules
-- BPF map `network_port_filter_enabled` (array) for port filter activation
-- BPF map `bpf_stats` (per-CPU array) for drop/correlation observability
-- helpers: `fill_header`, process/file/syscall/network reserve helpers, bounded user-path copy, sockaddr parsing
-- policy helpers: `is_current_pid_allowed`, `is_current_uid_allowed`, `is_event_allowed`
-- process handlers: `on_sched_exec`, `on_sched_fork`, `on_sched_exit`
-- file handlers: `on_sys_enter_*` + `on_sys_exit_*`
-- syscall handlers: `on_raw_sys_enter`, `on_raw_sys_exit`
-- network handlers: `on_sys_enter/exit_socket`, `connect`, `accept4`, `bind`, `listen`, `close`
+## Key Maps
+- `events` (ring buffer)
+- `file_enter_state` (LRU hash)
+- `syscall_enter_state` (LRU hash)
+- `network_enter_state` (LRU hash)
+- `file_probe_enabled` (array)
+- `process_probe_enabled` (array)
+- `syscall_probe_enabled` (array)
+- `network_probe_enabled` (array)
+- `bpf_stats` (per-CPU array)
 
-## Current Event Lifecycle in Kernel
-1. handler checks coarse gate (`is_event_allowed`) and probe-specific gate
-2. reserve ring buffer slot
-3. zero struct
-4. fill common header
-5. fill payload
-6. submit to ring buffer
+## Handlers
+- process: `on_sched_exec`, `on_sched_fork`, `on_sched_exit`, clone-family exits
+- file: `openat`, `unlinkat`, `renameat2` enter/exit
+- syscall: `on_raw_sys_enter`, `on_raw_sys_exit`
+- network: `socket`, `connect`, `accept4`, `bind`, `listen`, `close`, `sendto`, `recvfrom`, `shutdown`
 
-For file/syscall/network telemetry:
-1. enter handler captures request details and stores them in correlation state map
-2. exit handler looks up stored state, updates timestamp/return value, emits one complete event
-3. correlation state is deleted
+## Event Lifecycle
+1. check domain/probe gate
+2. reserve ring-buffer record
+3. fill header + payload
+4. submit
 
-Why this is verifier-friendly:
-- bounded operations
-- fixed-size structs
-- no unbounded loops
+For file/syscall/network:
+1. enter stores state in map
+2. exit resolves state, fills `ret`, emits final event
+3. state entry deleted
 
-## Network Minimal Scope
-Active minimal network coverage:
-- socket lifecycle syscalls (`socket`, `connect`, `accept4`, `bind`, `listen`, `close`)
-- metadata only (fd/domain/type/protocol/family/ports/address bytes)
-- no payload parsing, no TLS inspection
+## Current Runtime Mode
+Capture-first mode is active:
+- PID/UID allowlist filtering disabled
+- syscall allowlist gating disabled
+- network port allowlist gating disabled
 
-## Current Gaps and Technical Debt
-- process payload should be validated on target kernel matrix
-- file/syscall/network correlation behavior under map pressure should be measured via `bpf_stats`
-- network metadata can be improved with lightweight fd context where verifier cost permits
-
-## Next Kernel Additions
-- stabilize cross-kernel behavior across distro matrix
-- add minimal DNS/HTTP metadata layers in userspace after current network events prove stable
+Domain toggles remain active controls.

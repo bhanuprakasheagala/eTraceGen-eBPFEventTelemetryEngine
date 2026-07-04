@@ -1,57 +1,40 @@
 # Build, Portability, and Compatibility
 
-This project is portable by design, but not "kernel-independent" in the absolute sense.
+This project is Linux-only, designed to work across many Linux distributions within eBPF compatibility bounds.
 
 ## 1. Build Behavior
-`CMakeLists.txt` switches collector backend based on `libbpf` availability.
+`CMakeLists.txt` enforces Linux host build and requires `libbpf`.
 
 Outputs:
-- binary: `etracegen`
-- default BPF object path baked into compile definitions
+- `build/etracegen`
+- default BPF object path via compile definition
 
 ## 2. Runtime BPF Object Resolution
 Order:
-1. environment variable `ETRACEGEN_BPF_OBJECT`
-2. build-time default path from CMake
+1. `ETRACEGEN_BPF_OBJECT`
+2. build-time default path
 
-Why:
-- supports custom deployment layouts
-- avoids hard-coding runtime working directory assumptions
+## 3. Linux Build Path
+Primary entrypoint:
+- `./scripts/linux.sh`
 
-## 3. BPF Object Build Path (Linux)
-Repository provides two equivalent paths:
-1. script: `./scripts/build_bpf.sh`
-2. CMake helper target: `cmake --build build --target bpf_object`
-
-Build requirements:
-- Linux host
-- `clang`
-- `bpftool`
-- kernel BTF at `/sys/kernel/btf/vmlinux`
-
-Outputs:
-- generated CO-RE type header: `bpf/vmlinux.h`
-- BPF object: `bpf/event_logger.bpf.o`
+Common commands:
+- `./scripts/linux.sh build`
+- `./scripts/linux.sh bpf`
+- `./scripts/linux.sh all`
 
 ## 4. Compatibility Reality
 Depends on:
-- kernel version and features
+- kernel version/features
 - distro kernel config
-- security controls (capabilities/lockdown)
-- available BTF and hook support
-- architecture-specific syscall numbering when using `filters.syscall_allowlist`
+- security controls (`cap_bpf`, lockdown, LSM)
+- BTF availability
 
-## 5. Degradation Strategy
-Current strategy:
-- compile-time fallback to stub if no libbpf
-- runtime best-effort attach for each BPF program
-- startup capability report with degraded reasons
+## 5. Runtime Controls
+Current high-level controls are domain toggles:
+- `domains.process`
+- `domains.file`
+- `domains.syscall`
+- `domains.network_socket`
 
-## 6. Linux-Focused Development Notes
-This repository can compile on non-Linux with stub mode, but full telemetry capture requires Linux kernel eBPF runtime.
-
-Use host preflight before runtime tests:
-```bash
-./scripts/check_host_linux.sh
-./scripts/check_host_linux.sh --strict
-```
+Current default mode is capture-first; allowlist/blocklist filtering is not active in primary flow.

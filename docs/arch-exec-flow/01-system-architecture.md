@@ -3,44 +3,38 @@
 This document explains what eTraceGen is architecturally, why it is split this way, and how components relate.
 
 ## 1. Problem Model
-Linux systems generate high-value events across process lifecycle, file activity, and syscalls. We want:
+Linux systems generate high-value events across process lifecycle, file activity, syscalls, and socket lifecycle. We want:
 - low-overhead collection
 - stable typing
 - evolvable user-space processing
-- portability across many kernels
+- compatibility across many Linux kernels and distributions
 
 ## 2. Core Split: Kernel vs User Space
-The project is split by responsibility, not just implementation language.
+The project is split by responsibility, not by language preference alone.
 
 ### Kernel (eBPF)
-- Observe hook points.
-- Capture minimal context.
-- Emit typed event payloads into ring buffer.
+- Observe tracepoints.
+- Capture minimal event context.
+- Emit typed payloads into ring buffer.
+- Keep verifier-safe logic and bounded execution.
 
 ### User Space (C++)
-- Receive raw events.
-- Decode using shared schema.
+- Receive raw ring-buffer payloads.
+- Decode via shared schema.
 - Enrich, filter, and serialize.
-- Own lifecycle, policy, and outputs.
+- Own lifecycle and operator-facing diagnostics.
 
-Why this split:
-- kernel-side complexity is expensive and verifier-constrained
-- user space is easier for iteration, testing, and richer logic
-
-## 3. Domain Strategy (Now vs Later)
-### v1 domain scope (active)
+## 3. Domain Strategy
+### v1 active scope
 - Process
 - File
 - Syscall
+- Socket lifecycle and transport I/O hooks (metadata-only records)
 
-### future domains (planned, inactive)
-- Socket/network lifecycle
+### later scope
 - DNS
 - HTTP/HTTPS correlation
-
-Design intent:
-- architecture is domain-extensible, but code implementation follows milestone scope
-- this prevents speculative code burden and keeps runtime overhead focused
+- deeper flow/protocol context
 
 ## 4. Component Graph
 
@@ -56,16 +50,25 @@ Design intent:
 +---------------------------------------------------------------+
 ```
 
-## 5. File-Level Architecture Map
+## 5. Kernel Source Layout
+The kernel side is split by domain, but the build entrypoint stays stable:
+- Entry point / aggregator: `../bpf/event_logger.bpf.c`
+- Shared helpers and maps: `../bpf/event_logger_common.bpf.h`
+- Process domain: `../bpf/event_logger_process.bpf.c`
+- File domain: `../bpf/event_logger_file.bpf.c`
+- Syscall domain: `../bpf/event_logger_syscall.bpf.c`
+- Network domain: `../bpf/event_logger_network.bpf.c`
+
+This keeps CMake, loader wiring, and documentation anchored to one BPF object path while the actual handlers stay small and reviewable.
+
+## 6. File-Level Architecture Map
 - Entry point: `../src/main.cpp`
 - Collector abstraction: `../src/collector/collector.h`
 - libbpf collector: `../src/collector/collector_libbpf.cpp`
-- fallback collector: `../src/collector/collector_stub.cpp`
 - schema: `../include/event_schema.h`
 - decoder: `../src/decoder/decoder.*`
 - enrichment: `../src/enricher/enricher.*`
 - policy: `../src/policy/policy.*`
 - sink: `../src/sinks/json_sink.*`
 - metrics: `../src/metrics/metrics.*`
-- kernel program: `../bpf/event_logger.bpf.c`
-
+- kernel entrypoint: `../bpf/event_logger.bpf.c`

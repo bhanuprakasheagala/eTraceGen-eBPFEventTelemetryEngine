@@ -1,61 +1,58 @@
 # Kernel eBPF Side
 
-This document explains current kernel-side logic and why it is intentionally small.
+This document explains current kernel-side logic and why it is intentionally compact.
+
+## 0. Module Layout
+The build still starts from `../bpf/event_logger.bpf.c`, but that file now only aggregates the domain modules:
+- `../bpf/event_logger_common.bpf.h`
+- `../bpf/event_logger_process.bpf.c`
+- `../bpf/event_logger_file.bpf.c`
+- `../bpf/event_logger_syscall.bpf.c`
+- `../bpf/event_logger_network.bpf.c`
+
+Keeping the entrypoint stable matters because CMake, loading logic, and docs can continue to reference one BPF object path while the code itself remains split by concern.
 
 ## 1. Current Program Scope
-File: `../bpf/event_logger.bpf.c`
+Entry point: `../bpf/event_logger.bpf.c`
 
 Implemented today:
 - ring buffer map `events`
-- helper to fill common header fields
+- shared header fill helper for all event families
 - process tracepoint handlers: `sched_process_exec`, `sched_process_fork`, `sched_process_exit`
-- file syscall-enter handlers: `sys_enter_openat`, `sys_enter_unlinkat`, `sys_enter_renameat2`
-- file syscall-exit handlers: `sys_exit_openat`, `sys_exit_unlinkat`, `sys_exit_renameat2`
-- syscall tracepoint handlers: `raw_syscalls/sys_enter`, `raw_syscalls/sys_exit`
-- network syscall handlers: `socket`, `connect`, `accept4`, `bind`, `listen`, `close` (enter/exit)
-- in-kernel file/syscall/network enter/exit correlation maps for accurate `ret` outcomes
-- runtime file-probe toggle map (`file_probe_enabled`) driven by config
-- runtime syscall allowlist map (`syscall_allowlist`) driven by config
-- runtime PID/UID allowlist maps (`pid_allowlist`, `uid_allowlist`) driven by config
-- runtime PID/UID filter activation maps (`pid_filter_enabled`, `uid_filter_enabled`)
-- runtime network probe toggle map (`network_probe_enabled`)
-- runtime network port allowlist map (`network_port_allowlist`) and activation map (`network_port_filter_enabled`)
-- kernel-side per-CPU stats map (`bpf_stats`) for reserve/correlation visibility
+- process syscall-exit handlers: `clone`, `clone3`, `vfork`
+- file syscall enter/exit handlers: `openat`, `unlinkat`, `renameat2`
+- broad syscall telemetry via `raw_syscalls/sys_enter` + `raw_syscalls/sys_exit`
+- network socket lifecycle and transport I/O enter/exit handlers: `socket`, `connect`, `accept4`, `bind`, `listen`, `close`, `sendto`, `recvfrom`, `shutdown`
+- enter/exit correlation maps for file/syscall/network with accurate `ret`
+- runtime domain/probe toggles:
+  - `file_probe_enabled`
+  - `process_probe_enabled`
+  - `syscall_probe_enabled`
+  - `network_probe_enabled`
+- kernel per-CPU stats map (`bpf_stats`) for reserve/correlation visibility
 
-## 2. Why Tracepoint First
-Tracepoints are generally more stable than kprobes across kernels.
-For a portability-focused design, tracepoints are the safest default.
+## 2. Capture-First Behavior
+Current runtime mode is capture-first for sandbox telemetry:
+- PID/UID allowlist filtering is disabled in active logic
+- syscall allowlist gating is disabled in active logic
+- network port allowlist gating is disabled in active logic
 
-## 3. Ring Buffer Emission Pattern
+Domain toggles are still active and are the primary runtime controls.
+
+## 3. Why Tracepoints
+Tracepoints are more stable than kprobes across kernel variants and are better for distro portability.
+
+## 4. Ring Buffer Emission Pattern
 For each event:
-1. reserve space in ring buffer
-2. zero/init struct
-3. fill header and payload
-4. submit event
+1. reserve ring-buffer record
+2. zero/init payload
+3. fill header and family fields
+4. submit record
 
-Why this pattern:
-- avoids dynamic allocations
-- verifier-friendly
-- bounded and predictable
+This keeps kernel work bounded and verifier-friendly.
 
-## 4. Kernel Filtering
-A unified `is_event_allowed()` gate is applied at probe entry for process, file, syscall, and network handlers.
-
-Behavior:
-- PID filter disabled when `pid_filter_enabled[0] == 0`
-- UID filter disabled when `uid_filter_enabled[0] == 0`
-- when enabled, event passes only if current task identity matches allowlist map entries
-
-Network behavior:
-- per-kind probe toggles from `network_probe_enabled`
-- optional port allowlist filter controlled by `network_port_filter_enabled`
-
-## 5. Current Gaps (Planned)
-- validate and harden process payload fidelity across kernel variants
-- validate file/syscall/network correlation behavior under sustained pressure using `bpf_stats` counters
-- expand network metadata quality (better fd-to-socket context without heavy kernel overhead)
-
-## 6. Design Guardrails
-- avoid expensive string/path resolution in kernel where possible
-- keep event size bounded
-- tolerate missed events under pressure and measure drops
+## 5. Design Guardrails
+- keep kernel logic small and deterministic
+- keep payload size bounded
+- tolerate pressure-related drops and measure them via `bpf_stats`
+- keep expensive parsing/enrichment in user space

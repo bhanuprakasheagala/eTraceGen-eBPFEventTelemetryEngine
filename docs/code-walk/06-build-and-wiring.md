@@ -3,28 +3,22 @@
 Source: `../../CMakeLists.txt`
 
 ## Build Graph
-The executable is `etracegen`.
-Core sources are always linked.
-Collector backend is selected conditionally.
+Executable target: `etracegen`.
 
-## Backend Selection
-- detect `libbpf` with `pkg-config`
-- if present: compile libbpf collector and define compile-time flags
-- else: compile stub collector
+Always-linked sources include pipeline stages plus `collector_libbpf.cpp`.
 
-Relevant blocks:
-- option flag: `../../CMakeLists.txt`
-- libbpf discovery branch
-- libbpf target wiring branch
-- stub fallback branch
+## Linux-Only Build Constraint
+`CMakeLists.txt` fails configure on non-Linux hosts.
+`libbpf` is required via `pkg-config`.
 
 ## BPF Object Default Path Injection
 Compile definition:
 - `EVENT_LOGGER_DEFAULT_BPF_OBJECT="${CMAKE_SOURCE_DIR}/bpf/event_logger.bpf.o"`
 
 Why this helps:
-- runtime does not depend on process current directory
-- provides deterministic default for deployments
+- runtime does not depend on current working directory
+- deterministic default for deployment and testing
+- the object can be split across multiple domain modules without exposing that layout to userspace
 
 ## Runtime Override
 Environment variable:
@@ -32,26 +26,17 @@ Environment variable:
 
 Why this exists:
 - supports package-managed paths
-- enables testing alternate BPF object builds without recompiling user space
+- allows alternate BPF object testing without userspace rebuild
 
 ## Linux BPF Build Target
 CMake helper target:
 - `bpf_object`
 
 Behavior:
-- runs `scripts/build_bpf.sh`
+- runs `scripts/linux.sh bpf`
 - generates `bpf/vmlinux.h` from host BTF
-- builds `bpf/event_logger.bpf.o`
+- builds `bpf/event_logger.bpf.o` from the aggregator entrypoint that includes the domain-specific BPF files
 
-Why target is opt-in:
-- avoids breaking non-Linux C++ development flows
-- keeps Linux-specific build requirements explicit
-
-## Practical Build Modes
-1. Stub mode:
-- build succeeds without libbpf
-- useful for pipeline development
-
-2. Full mode:
-- requires Linux + libbpf + compiled BPF object
-- enables real event capture
+## Operational Entry Point
+Use one script for build/check/test/run:
+- `./scripts/linux.sh`
