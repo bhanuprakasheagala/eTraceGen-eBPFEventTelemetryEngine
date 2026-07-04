@@ -111,6 +111,7 @@ build_bpf() {
     -D__TARGET_ARCH_${target_arch} \
     -I"${ROOT_DIR}/bpf" \
     -I"${ROOT_DIR}/include" \
+    -mllvm -bpf-stack-size=8192 \
     "${extra_include_flags[@]}" \
     -c "${BPF_SRC}" \
     -o "${BPF_OBJ}"
