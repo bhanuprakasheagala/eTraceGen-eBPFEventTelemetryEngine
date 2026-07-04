@@ -272,6 +272,11 @@ struct sockaddr_in6_min {
   __be32 scope_id;
 };
 
+struct sockaddr_un_min {
+  __u16 family;
+  char path[EVENT_LOGGER_UNIX_PATH_LEN];
+};
+
 static __always_inline void stat_inc(__u32 key) {
   __u64* cnt = bpf_map_lookup_elem(&bpf_stats, &key);
   if (cnt) {
@@ -571,25 +576,6 @@ static __always_inline void copy_unix_sockaddr_path(const struct sockaddr_un_min
     endpoint->path[path_len] = '\0';
   }
 }
-
-struct sockaddr_in_min {
-  __u16 family;
-  __be16 port;
-  __be32 addr;
-};
-
-struct sockaddr_in6_min {
-  __u16 family;
-  __be16 port;
-  __be32 flowinfo;
-  __u8 addr[16];
-  __be32 scope_id;
-};
-
-struct sockaddr_un_min {
-  __u16 family;
-  char path[EVENT_LOGGER_UNIX_PATH_LEN];
-};
 
 struct iovec_min {
   __u64 iov_base;
