@@ -19,6 +19,8 @@ extern "C" {
 #define EVENT_LOGGER_COMM_LEN 16
 /** @brief Fixed path buffer length used by process/file payload fields. */
 #define EVENT_LOGGER_PATH_LEN 256
+/** @brief Fixed pathname buffer length for UNIX domain socket endpoints. */
+#define EVENT_LOGGER_UNIX_PATH_LEN 108
 
 /**
  * @brief Top-level event family identifiers.
@@ -52,7 +54,10 @@ enum file_event_kind {
 };
 
 /**
- * @brief Minimal network socket event subtypes for v1 expansion.
+ * @brief Socket-centric network event subtypes.
+ *
+ * Control-plane kinds come first so kernel and userspace can evolve the socket
+ * layer incrementally without renumbering earlier records.
  */
 enum network_event_kind {
   NETWORK_SOCKET = 1,
@@ -64,6 +69,34 @@ enum network_event_kind {
   NETWORK_SENDTO = 7,
   NETWORK_RECVFROM = 8,
   NETWORK_SHUTDOWN = 9,
+  NETWORK_SOCKETPAIR = 10,
+  NETWORK_ACCEPT4 = 11,
+  NETWORK_GETSOCKNAME = 12,
+  NETWORK_GETPEERNAME = 13,
+  NETWORK_SETSOCKOPT = 14,
+  NETWORK_GETSOCKOPT = 15,
+  NETWORK_SENDMSG = 16,
+  NETWORK_RECVMSG = 17,
+  NETWORK_READ = 18,
+  NETWORK_WRITE = 19,
+  NETWORK_READV = 20,
+  NETWORK_WRITEV = 21,
+  NETWORK_SENDMMSG = 22,
+  NETWORK_RECVMMSG = 23,
+};
+
+enum network_event_direction {
+  NETWORK_DIRECTION_UNKNOWN = 0,
+  NETWORK_DIRECTION_INBOUND = 1,
+  NETWORK_DIRECTION_OUTBOUND = 2,
+};
+
+enum network_transport {
+  NETWORK_TRANSPORT_UNKNOWN = 0,
+  NETWORK_TRANSPORT_TCP = 1,
+  NETWORK_TRANSPORT_UDP = 2,
+  NETWORK_TRANSPORT_UNIX = 3,
+  NETWORK_TRANSPORT_RAW = 4,
 };
 
 /**
@@ -130,21 +163,52 @@ struct syscall_event {
 };
 
 /**
- * @brief Network socket event payload (metadata-only, no payload inspection).
+ * @brief Socket endpoint snapshot shared by control-plane and future data-plane records.
+ *
+ * @note `addr` is used for IPv4/IPv6 raw bytes.
+ * @note `path` is used for UNIX domain sockets, including abstract paths when present.
+ */
+struct network_endpoint {
+  uint32_t family;
+  uint32_t port;
+  uint32_t addr_len;
+  uint8_t addr[16];
+  char path[EVENT_LOGGER_UNIX_PATH_LEN];
+};
+
+/**
+ * @brief Network socket event payload.
+ *
+ * Socket events keep control-plane facts and bounded endpoint snapshots in one
+ * record so userspace can correlate flow identity without kernel-side protocol
+ * parsing. Future data-plane hooks will reuse the same envelope.
  */
 struct network_event {
   struct event_header hdr;
   uint32_t kind;
   int32_t fd;
+  int32_t peer_fd;
   int32_t ret;
   int32_t domain;
   int32_t sock_type;
   int32_t protocol;
-  uint32_t addr_family;
-  uint32_t src_port;
-  uint32_t dst_port;
-  uint8_t src_addr[16];
-  uint8_t dst_addr[16];
+  int32_t flags;
+  int32_t backlog;
+  int32_t how;
+  int32_t opt_level;
+  int32_t opt_name;
+  int32_t opt_len;
+  uint8_t optval_prefix[16];
+  uint64_t flow_id;
+  uint64_t socket_id;
+  uint32_t direction;
+  uint32_t transport;
+  uint64_t bytes_requested;
+  uint64_t bytes_transferred;
+  uint32_t bytes_captured;
+  uint32_t bytes_truncated;
+  struct network_endpoint local;
+  struct network_endpoint remote;
 };
 
 #ifdef __cplusplus
