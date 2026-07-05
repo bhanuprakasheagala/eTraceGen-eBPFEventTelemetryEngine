@@ -315,7 +315,7 @@ static __always_inline bool is_syscall_probe_enabled(void) {
   __u32 key = 0;
   __u8* enabled = bpf_map_lookup_elem(&syscall_probe_enabled, &key);
   if (!enabled) {
-    return true;
+    return false;
   }
 
   return *enabled != 0;

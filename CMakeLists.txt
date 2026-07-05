@@ -23,6 +23,13 @@ add_executable(etracegen
 target_include_directories(etracegen PRIVATE include src)
 target_compile_options(etracegen PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(test_policy_process
+  tests/test_policy_process.cpp
+  src/policy/policy.cpp
+)
+target_include_directories(test_policy_process PRIVATE include src)
+target_compile_options(test_policy_process PRIVATE -Wall -Wextra -Wpedantic)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBBPF REQUIRED libbpf)
 
