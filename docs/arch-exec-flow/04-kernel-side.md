@@ -1,6 +1,6 @@
 # Kernel eBPF Side
 
-This document explains current kernel-side logic and why it is intentionally compact.
+This document explains the current kernel-side implementation and why it is intentionally compact. It is treated as a transitional reference while the project shifts toward a signal-first policy model in user space.
 
 ## 0. Module Layout
 The build still starts from `../bpf/event_logger.bpf.c`, but that file now only aggregates the domain modules:

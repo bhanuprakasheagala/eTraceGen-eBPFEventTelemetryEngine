@@ -1,6 +1,8 @@
 # Event Contract and ABI
 
-The most important long-term artifact in this project is the shared event contract.
+This document records the current low-level event contract used by the existing implementation. It remains important as a compatibility boundary, but it is not the final semantic model for the new signal-first design.
+
+The planned evolution is to keep this ABI as the low-level transport contract while layering a higher-level semantic event model on top of it.
 
 ## 1. Shared Header
 `include/event_schema.h` is consumed by both:

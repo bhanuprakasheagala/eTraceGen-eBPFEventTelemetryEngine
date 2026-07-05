@@ -13,8 +13,12 @@ This documentation is written as a story: from intent, to architecture, to runti
 8. [Roadmap and Extensions](07-roadmap-and-extension.md)
 9. [v1 Validation Suite (Linux)](08-validation-v1.md)
 10. [v1 Release Preflight](09-release-preflight-v1.md)
-11. [Linux Host Setup and Bring-up](linux-setup.md)
-12. [Code Walk: File-by-File Deep Dive](../code-walk/README.md)
+11. [Signal-First Telemetry and Event Reduction Design](10-signal-first-telemetry-design.md)
+12. [Policy and Event Semantics Design](11-policy-and-event-semantics.md)
+13. [Implementation Plan: Signal-First Telemetry](12-implementation-plan.md)
+14. [Process and File First Implementation Plan](13-process-file-first-implementation.md)
+15. [Linux Host Setup and Bring-up](linux-setup.md)
+16. [Code Walk: File-by-File Deep Dive](../code-walk/README.md)
 
 ## Philosophy Behind This Project
 - Keep kernel programs small, bounded, and verifier-friendly.
@@ -22,3 +26,6 @@ This documentation is written as a story: from intent, to architecture, to runti
 - Preserve schema stability as the project grows into network and higher-layer telemetry.
 - Grow network capture in layers: socket control plane, socket data plane, protocol parsing, and userspace enrichment.
 - Handle partial kernel feature availability with explicit startup diagnostics across Linux kernels and distro configurations.
+- Transition from a broad capture-first model toward a signal-first model that emphasizes new, meaningful process and file activity over noisy low-level stream volume.
+
+> Note: the older documents in this folder describe the current low-level implementation and compatibility contract. For the planned direction, start with the signal-first design documents.

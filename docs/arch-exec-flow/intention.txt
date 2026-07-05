@@ -1,0 +1,191 @@
+I’m going to review the existing architecture notes and event model so I can ground the brainstorming in how this project already structures telemetry and filtering.
+
+Read [](file:///home/bhanuprakasheagala/Documents/Programming/eTraceGen-eBPFEventTelemetryEngine/docs/arch-exec-flow/03-event-contract.md)
+
+Read [](file:///home/bhanuprakasheagala/Documents/Programming/eTraceGen-eBPFEventTelemetryEngine/docs/arch-exec-flow/04-kernel-side.md)
+
+Read [](file:///home/bhanuprakasheagala/Documents/Programming/eTraceGen-eBPFEventTelemetryEngine/docs/arch-exec-flow/05-userspace-side.md)
+
+## Brainstorming direction
+
+The current behavior is noisy because the system is acting more like a raw kernel stream than a focused event logger. That is a common trap in eBPF telemetry.
+
+### What is likely causing the noise
+- Broad syscall capture is producing a lot of low-value events.
+- Enter/exit pairs are being emitted as separate semantic events.
+- The collector process itself is not yet fully excluded from the stream.
+- There is no “baseline at startup” concept, so everything that was already running is being treated as new activity.
+- The pipeline is currently focused on capture-first behavior rather than “high-signal only” behavior.
+
+---
+
+## Enterprise-style patterns to borrow
+
+### 1. Audit-style approach
+Tools like `auditd` and SELinux-style logging do not record everything. They focus on:
+- process creation
+- file create/modify/delete
+- privilege changes
+- network connection attempts
+
+They use policy rules to decide what matters.
+
+Best idea for this project:
+- Treat “process”, “file”, and “network” as first-class event families.
+- Do not log every raw syscall by default.
+- Log only meaningful actions, such as:
+  - new process launched
+  - process execed a new binary
+  - file created/modified/deleted
+  - file content changed
+  - new network connection established
+
+### 2. Sysmon/Falco style approach
+Products like `Sysmon` and `Falco` are strong examples of “signal over volume” telemetry.
+They typically:
+- track process identity and ancestry
+- filter by process path or command line
+- suppress obviously noisy events
+- raise rich events like:
+  - “process started”
+  - “file modified”
+  - “suspicious child process”
+
+For this project, that suggests:
+- a “new process only” model
+- a “file change only” model
+- richer event semantics such as:
+  - subject = process
+  - action = created/modified/executed
+  - object = file/path
+  - outcome = success/failure
+
+### 3. EDR / security monitoring style
+Enterprise EDR products usually separate:
+- “who started”
+- “what changed”
+- “what connected”
+- “what was newly observed”
+
+They also use:
+- allowlists
+- process baselining
+- suppression windows
+- parent/child correlation
+
+That is exactly the direction we want:
+- ignore already-running processes at startup
+- only report newly observed processes/applications
+- avoid logging the collector itself
+
+---
+
+## Recommended product behavior
+
+### A. Ignore the collector itself
+This should be a hard rule:
+- suppress events whose PID/TID/TGID belongs to the collector process
+- also suppress its children if needed
+- optionally suppress the logging process tree entirely
+
+### B. Baseline everything at startup
+At startup, snapshot:
+- running processes
+- currently open/active files if needed
+- already-known executables
+
+Then:
+- only record new processes that appear after startup
+- ignore already-running applications unless they do something new and relevant
+- maintain a “seen before” registry for process identities
+
+This will reduce the flood immediately.
+
+### C. Focus on “newly observed” activity
+Instead of “everything happening”, think:
+- “what started after monitoring began?”
+- “what new process did?”
+- “what file changed?”
+- “what new connection was made?”
+
+That feels much more aligned to enterprise event observability.
+
+### D. Make file events meaningful
+Right now, “file update” should map to:
+- create
+- modify
+- rename
+- delete
+- chmod/ownership changes
+
+Not just every open/close noise.
+
+For each file event, the system should ideally capture:
+- full path
+- executable or regular file type
+- user/process responsible
+- operation type
+- timestamp
+- success/failure
+
+---
+
+## How to reduce duplicates
+
+### Suggested rules
+- Coalesce enter/exit into a single logical event.
+- Suppress repeated events for the same file/process within a short window.
+- Deduplicate by a key such as:
+  - process identity + operation + object path
+  - or process identity + file inode + action
+
+### Example
+If a process writes the same file repeatedly in a burst, emit:
+- one “file modified” event
+- then possibly a summary event after a short debounce window
+
+This is how many enterprise tools reduce noise.
+
+---
+
+## Suggested roadmap
+
+### Phase 1: Noise reduction
+- suppress self-processes
+- suppress already-running processes at startup
+- reduce raw syscall volume
+- keep only selected high-value event families
+
+### Phase 2: Semantic event model
+- emit “process started”, “process exec”, “file modified”, “file created”, “file deleted”
+- avoid low-level syscall spam
+
+### Phase 3: Stateful filtering
+- maintain “seen processes”
+- maintain “seen files”
+- use suppression and debounce windows
+
+### Phase 4: Rich enrichment
+- full path
+- parent/child relationship
+- command line
+- user context
+- file metadata and path resolution
+
+---
+
+## My recommendation
+
+The right target is not “capture everything.” It is:
+- capture “newly observed” activity
+- suppress the collector itself
+- log meaningful process and file actions
+- reduce duplicates with state and policy
+
+That is the same direction used by enterprise tools such as Sysmon, Falco, auditd, and modern EDR systems.
+
+If you want, I can next turn this into a concrete product design for:
+1. process filtering,
+2. file-change semantics,
+3. syscall-event reduction,
+4. deduplication policy.

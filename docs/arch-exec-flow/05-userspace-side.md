@@ -1,6 +1,6 @@
 # User-Space Pipeline (Modern C++)
 
-This document explains each C++ block and why it exists.
+This document explains the current C++ pipeline and why each component exists. It remains a useful reference for the present implementation, but the longer-term design now calls for a semantic filtering layer above this pipeline.
 
 ## 1. Collector Interface
 `Collector` exposes:
