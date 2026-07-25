@@ -197,7 +197,7 @@ Expected BTF location:
 ## Clone
 
 ```bash
-git clone https://github.com/<username>/eTraceGen.git
+git clone https://github.com/bhanuprakasheagala/eTraceGen.git
 cd eTraceGen
 ```
 
