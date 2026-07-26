@@ -9,9 +9,7 @@
 
 /* Exec tracepoint is a stable first hook for process lifecycle telemetry. */
 SEC("tracepoint/sched/sched_process_exec")
-int on_sched_exec(void* ctx) {
-  (void)ctx;
-
+int on_sched_exec(struct trace_event_raw_sched_process_exec* ctx) {
   if (!is_event_allowed() || !is_process_probe_enabled(PROCESS_EXEC)) {
     return 0;
   }
@@ -20,6 +18,16 @@ int on_sched_exec(void* ctx) {
   if (!ev) {
     return 0;
   }
+
+  /*
+   * Capture the exec path in-kernel via the tracepoint's __data_loc filename.
+   * This is reliable even for short-lived processes whose /proc entry is gone
+   * before userspace drains the ring buffer; userspace uses it as the
+   * authoritative exec-path fallback when /proc enrichment fails.
+   */
+  unsigned int filename_off = ctx->__data_loc_filename & 0xFFFF;
+  bpf_probe_read_kernel_str(ev->exec_path, sizeof(ev->exec_path),
+                            (const char*)ctx + filename_off);
 
   bpf_ringbuf_submit(ev, 0);
   return 0;

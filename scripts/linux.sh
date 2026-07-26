@@ -171,7 +171,7 @@ preflight() {
   [[ -f "${ROOT_DIR}/include/event_schema.h" ]] || fail "missing file: include/event_schema.h"
   [[ -f "${ROOT_DIR}/src/main.cpp" ]] || fail "missing file: src/main.cpp"
   [[ -f "${ROOT_DIR}/bpf/event_logger.bpf.c" ]] || fail "missing file: bpf/event_logger.bpf.c"
-  [[ -f "${ROOT_DIR}/docs/arch-exec-flow/linux-setup.md" ]] || fail "missing file: docs/arch-exec-flow/linux-setup.md"
+  [[ -f "${ROOT_DIR}/docs/setup.md" ]] || fail "missing file: docs/setup.md"
   pass "repository structure sanity checks passed"
 
   rg -q "domains:" "${ROOT_DIR}/config/default.yaml" || fail "config missing domains section"
@@ -222,17 +222,33 @@ generate_network_activity() {
   exec 3>&- 2>/dev/null || true
 }
 
+unit_tests() {
+  ensure_linux
+  [[ -d "${ROOT_DIR}/build" ]] || fail "build dir missing (run ./scripts/linux.sh build)"
+  check_cmd ctest
+  ctest --test-dir "${ROOT_DIR}/build" --output-on-failure
+  pass "unit tests passed"
+}
+
 integration_smoke() {
   ensure_linux
 
-  local out_file="${ROOT_DIR}/build/integration_smoke_output.ndjson"
+  local cfg="${ROOT_DIR}/build/integration_smoke.yaml"
+  local sink_file="${ROOT_DIR}/build/integration_smoke_events.ndjson"
+  local stdout_log="${ROOT_DIR}/build/integration_smoke_stdout.log"
   local stderr_file="${ROOT_DIR}/build/integration_smoke_stderr.log"
 
   [[ -x "${BIN}" ]] || fail "binary not found: ${BIN}"
   [[ -f "${BPF_OBJ}" ]] || fail "bpf object not found: ${BPF_OBJ}"
 
-  rm -f "${out_file}" "${stderr_file}"
-  start_logger "${ROOT_DIR}/config/default.yaml" "${out_file}" "${stderr_file}"
+  rm -f "${sink_file}" "${stdout_log}" "${stderr_file}"
+
+  # Enable process/file/syscall/network and assert on the file sink (JsonSink is
+  # file-only; the process stdout carries no events). Network is compiled in, but
+  # its output depends on host traffic and kernel tracepoint availability, so the
+  # network check is warn-level (non-fatal).
+  write_validate_config "${cfg}" "true" "true" "${sink_file}"
+  start_logger "${cfg}" "${stdout_log}" "${stderr_file}"
 
   generate_general_activity "smoke"
   generate_network_activity
@@ -240,12 +256,12 @@ integration_smoke() {
   sleep 1
   stop_logger
 
-  rg -q '"type":"process"' "${out_file}" || fail "no process events observed"
-  rg -q '"type":"file"' "${out_file}" || fail "no file events observed"
-  rg -q '"type":"syscall"' "${out_file}" || fail "no syscall events observed"
+  rg -q '"type":"process"' "${sink_file}" || fail "no process events observed"
+  rg -q '"type":"file"' "${sink_file}" || fail "no file events observed"
+  rg -q '"type":"syscall"' "${sink_file}" || fail "no syscall events observed"
 
-  if ! rg -q '"type":"network"' "${out_file}"; then
-    warn "no network events observed in smoke run"
+  if ! rg -q '"type":"network"' "${sink_file}"; then
+    warn "no network events observed in smoke run (may be host/kernel dependent)"
   fi
 
   pass "integration smoke test succeeded"
@@ -255,6 +271,7 @@ write_validate_config() {
   local cfg_path="$1"
   local syscall_enabled="$2"
   local network_enabled="$3"
+  local sink_path="$4"
 
   cat >"${cfg_path}" <<CFG
 collector:
@@ -276,7 +293,8 @@ file_probes:
   renameat2: true
 
 sink:
-  type: stdout_json
+  path: ${sink_path}
+  max_file_size_bytes: 104857600
 CFG
 }
 
@@ -302,11 +320,13 @@ run_validate_case() {
   local network_enabled="$3"
 
   local cfg="${ROOT_DIR}/build/validate_v1/${case_name}.yaml"
-  local out="${ROOT_DIR}/build/validate_v1/${case_name}.ndjson"
+  local sink_file="${ROOT_DIR}/build/validate_v1/${case_name}.ndjson"
+  local stdout_log="${ROOT_DIR}/build/validate_v1/${case_name}.stdout.log"
   local err="${ROOT_DIR}/build/validate_v1/${case_name}.stderr.log"
 
-  write_validate_config "${cfg}" "${syscall_enabled}" "${network_enabled}"
-  start_logger "${cfg}" "${out}" "${err}"
+  write_validate_config "${cfg}" "${syscall_enabled}" "${network_enabled}" "${sink_file}"
+  rm -f "${sink_file}"
+  start_logger "${cfg}" "${stdout_log}" "${err}"
 
   generate_general_activity "validate_${case_name}"
   if [[ "${network_enabled}" == "true" ]]; then
@@ -316,16 +336,17 @@ run_validate_case() {
   sleep 1
   stop_logger
 
-  assert_contains '"type":"process"' "${out}" "${case_name} missing process events"
-  assert_contains '"type":"file"' "${out}" "${case_name} missing file events"
+  # Assertions read the file sink (JsonSink is file-only), not the stdout capture.
+  assert_contains '"type":"process"' "${sink_file}" "${case_name} missing process events"
+  assert_contains '"type":"file"' "${sink_file}" "${case_name} missing file events"
 
   if [[ "${syscall_enabled}" == "true" ]]; then
-    assert_contains '"type":"syscall"' "${out}" "${case_name} missing syscall events"
+    assert_contains '"type":"syscall"' "${sink_file}" "${case_name} missing syscall events"
   else
-    assert_not_contains '"type":"syscall"' "${out}" "${case_name} unexpectedly emitted syscall events"
+    assert_not_contains '"type":"syscall"' "${sink_file}" "${case_name} unexpectedly emitted syscall events"
   fi
 
-  if [[ "${network_enabled}" == "true" ]] && ! rg -q '"type":"network"' "${out}"; then
+  if [[ "${network_enabled}" == "true" ]] && ! rg -q '"type":"network"' "${sink_file}"; then
     warn "${case_name} did not emit network events on this host"
   fi
 
@@ -365,9 +386,10 @@ Commands:
   all        Build userspace + BPF object.
   check      Run Linux host prerequisite checks.
   preflight  Run release preflight checks.
+  test       Run unit tests (ctest).
   smoke      Run integration smoke test.
   validate   Run v1 validation suite.
-  verify     Run build + preflight + smoke + validate.
+  verify     Run build + preflight + test + smoke + validate.
   run        Run the collector binary.
 USAGE
 }
@@ -382,9 +404,10 @@ main() {
     all) build_userspace; build_bpf ;;
     check) host_check ;;
     preflight) preflight ;;
+    test) unit_tests ;;
     smoke) integration_smoke ;;
     validate) validate_v1 ;;
-    verify) build_userspace; build_bpf; preflight; integration_smoke; validate_v1 ;;
+    verify) build_userspace; build_bpf; preflight; unit_tests; integration_smoke; validate_v1 ;;
     run) run_binary ;;
     *) fail "unknown command: ${cmd}. Run ./scripts/linux.sh help" ;;
   esac

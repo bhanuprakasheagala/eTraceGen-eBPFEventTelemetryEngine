@@ -5,6 +5,9 @@
  * File Notes:
  * - Minimal pipeline health counters.
  * - Tracks ingress quality before full observability/telemetry stack is added.
+ * - Accounting note: only decode failures increment `dropped`. Events removed by
+ *   self-suppression or (future) policy are NOT counted, so `decoded` does not
+ *   equal "records written". Dedicated suppression counters are future work.
  */
 
 #include <cstdint>

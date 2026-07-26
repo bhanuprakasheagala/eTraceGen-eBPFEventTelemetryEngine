@@ -19,9 +19,10 @@
 
 #include "collector/collector.h"
 #include "decoder/decoder.h"
-#include "enricher/enricher.h"
 #include "metrics/metrics.h"
+#include "model/normalizer.h"
 #include "policy/policy.h"
+#include "registry/entity_registry.h"
 #include "sinks/json_sink.h"
 
 namespace {
@@ -68,14 +69,10 @@ std::string DefaultConfigPath() {
  * the telemetry stream.
  */
 bool IsSelfEvent(const event_logger::EventVariant& event, uint32_t self_tgid) {
-  return std::visit(
-      [self_tgid](const auto& ev) -> bool {
-        if (ev.hdr.tgid == self_tgid || ev.hdr.pid == self_tgid) {
-          return true;
-        }
-        return false;
-      },
-      event);
+  // Match on tgid only: the collector's own events share its tgid. Matching on
+  // pid too would over-broadly drop an unrelated thread whose TID equals our pid.
+  return std::visit([self_tgid](const auto& ev) -> bool { return ev.hdr.tgid == self_tgid; },
+                    event);
 }
 
 /**
@@ -236,7 +233,8 @@ int main() {
 
   auto* collector = event_logger::CreateCollector();
   event_logger::Decoder decoder;
-  event_logger::Enricher enricher;
+  event_logger::Normalizer normalizer;
+  event_logger::EntityRegistry registry;
   event_logger::PolicyEngine policy;
   auto sink = BuildSink();
   if (!sink || !sink->IsReady()) {
@@ -247,7 +245,7 @@ int main() {
   event_logger::Metrics metrics;
 
   // Raw callback is the top of the userspace event path:
-  // bytes -> decode -> self-filter -> enrich -> policy -> sink.
+  // bytes -> decode -> self-filter -> normalize -> registry -> policy -> sink.
   const bool started = collector->Start([&](std::span<const unsigned char> raw) {
     metrics.IncrementReceived();
 
@@ -263,12 +261,18 @@ int main() {
       return;
     }
 
-    enricher.Enrich(event);
+    // Normalize into the canonical model and update the entity registry from the
+    // full fact stream. This runs before policy so registry knowledge stays
+    // complete even for events policy later suppresses from the sink. The
+    // registry is the single source of process context (formerly the enricher).
+    event_logger::CanonicalEvent canonical = normalizer.Normalize(event);
+    registry.Ingest(canonical);
+
     if (!policy.Allow(event)) {
       return;
     }
 
-    sink->Write(event);
+    sink->Write(canonical);
   });
 
   event_logger::CollectorStartupReport startup_report{};

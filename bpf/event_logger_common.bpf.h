@@ -258,6 +258,28 @@ struct {
   __type(value, struct socket_fd_value);
 } socket_fd_state SEC(".maps");
 
+/*
+ * Per-CPU scratch for building a network-enter payload without a large stack
+ * allocation. struct network_state_value is ~512 bytes, which alone would blow
+ * the verifier's 512-byte stack limit, so enter handlers stage it here instead.
+ */
+struct {
+  __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+  __uint(max_entries, 1);
+  __type(key, __u32);
+  __type(value, struct network_state_value);
+} network_scratch SEC(".maps");
+
+/* Return a zeroed per-CPU network-enter scratch slot, or NULL if unavailable. */
+static __always_inline struct network_state_value* net_scratch(void) {
+  __u32 key = 0;
+  struct network_state_value* s = bpf_map_lookup_elem(&network_scratch, &key);
+  if (s) {
+    __builtin_memset(s, 0, sizeof(*s));
+  }
+  return s;
+}
+
 struct sockaddr_in_min {
   __u16 family;
   __be16 port;
@@ -1078,25 +1100,6 @@ static __always_inline int emit_network_exit_event(__u32 kind, __s64 ret_code) {
 
   if (out->flow_id == 0) {
     out->flow_id = compute_network_flow_id(out);
-  }
-
-  if ((kind == NETWORK_ACCEPT || kind == NETWORK_ACCEPT4) && ret_code >= 0) {
-    out->peer_fd = (__s32)ret_code;
-  }
-
-  if ((kind == NETWORK_ACCEPT || kind == NETWORK_ACCEPT4 || kind == NETWORK_RECVFROM ||
-       kind == NETWORK_GETPEERNAME) && ret_code >= 0 && state->sockaddr_ptr != 0) {
-    __u32 len = 0;
-    if (state->sockaddr_len_ptr != 0) {
-      bpf_probe_read_user(&len, sizeof(len), (const void*)state->sockaddr_len_ptr);
-    }
-    parse_sockaddr_user((const void*)state->sockaddr_ptr, len, &out->remote);
-  }
-
-  if (kind == NETWORK_SENDTO || kind == NETWORK_RECVFROM) {
-    if (ret_code >= 0) {
-      out->bytes_transferred = (__u64)ret_code;
-    }
   }
 
   if (kind == NETWORK_GETSOCKNAME && ret_code >= 0 && state->sockaddr_ptr != 0) {

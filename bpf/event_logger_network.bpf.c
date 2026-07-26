@@ -19,15 +19,19 @@ int on_sys_enter_socket(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.domain = (__s32)ctx->args[0];
-  state.ev.sock_type = (__s32)ctx->args[1];
-  state.ev.protocol = (__s32)ctx->args[2];
-  state.ev.transport = infer_network_transport(state.ev.domain, state.ev.sock_type);
-  state.ev.direction = infer_network_direction(NETWORK_SOCKET);
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.domain = (__s32)ctx->args[0];
+  state->ev.sock_type = (__s32)ctx->args[1];
+  state->ev.protocol = (__s32)ctx->args[2];
+  state->ev.transport = infer_network_transport(state->ev.domain, state->ev.sock_type);
+  state->ev.direction = infer_network_direction(NETWORK_SOCKET);
 
-  save_network_enter_state(NETWORK_SOCKET, &state, ev);
+  save_network_enter_state(NETWORK_SOCKET, state, ev);
   return 0;
 }
 
@@ -53,16 +57,20 @@ int on_sys_enter_socketpair(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.domain = (__s32)ctx->args[0];
-  state.ev.sock_type = (__s32)ctx->args[1];
-  state.ev.protocol = (__s32)ctx->args[2];
-  state.peer_fd_ptr = (__u64)ctx->args[3];
-  state.ev.transport = infer_network_transport(state.ev.domain, state.ev.sock_type);
-  state.ev.direction = infer_network_direction(NETWORK_SOCKETPAIR);
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.domain = (__s32)ctx->args[0];
+  state->ev.sock_type = (__s32)ctx->args[1];
+  state->ev.protocol = (__s32)ctx->args[2];
+  state->peer_fd_ptr = (__u64)ctx->args[3];
+  state->ev.transport = infer_network_transport(state->ev.domain, state->ev.sock_type);
+  state->ev.direction = infer_network_direction(NETWORK_SOCKETPAIR);
 
-  save_network_enter_state(NETWORK_SOCKETPAIR, &state, ev);
+  save_network_enter_state(NETWORK_SOCKETPAIR, state, ev);
   return 0;
 }
 
@@ -88,16 +96,20 @@ int on_sys_enter_connect(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.direction = infer_network_direction(NETWORK_CONNECT);
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.direction = infer_network_direction(NETWORK_CONNECT);
 
   const void* sockaddr_ptr = (const void*)ctx->args[1];
   __u32 sockaddr_len = (__u32)ctx->args[2];
-  parse_sockaddr_user(sockaddr_ptr, sockaddr_len, &state.ev.remote);
+  parse_sockaddr_user(sockaddr_ptr, sockaddr_len, &state->ev.remote);
 
-  save_network_enter_state(NETWORK_CONNECT, &state, ev);
+  save_network_enter_state(NETWORK_CONNECT, state, ev);
   return 0;
 }
 
@@ -123,16 +135,20 @@ int on_sys_enter_bind(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.direction = NETWORK_DIRECTION_UNKNOWN;
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.direction = NETWORK_DIRECTION_UNKNOWN;
 
   const void* sockaddr_ptr = (const void*)ctx->args[1];
   __u32 sockaddr_len = (__u32)ctx->args[2];
-  parse_sockaddr_user(sockaddr_ptr, sockaddr_len, &state.ev.local);
+  parse_sockaddr_user(sockaddr_ptr, sockaddr_len, &state->ev.local);
 
-  save_network_enter_state(NETWORK_BIND, &state, ev);
+  save_network_enter_state(NETWORK_BIND, state, ev);
   return 0;
 }
 
@@ -158,14 +174,18 @@ int on_sys_enter_accept(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.direction = infer_network_direction(NETWORK_ACCEPT);
-  state.sockaddr_ptr = (__u64)ctx->args[1];
-  state.sockaddr_len_ptr = (__u64)ctx->args[2];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.direction = infer_network_direction(NETWORK_ACCEPT);
+  state->sockaddr_ptr = (__u64)ctx->args[1];
+  state->sockaddr_len_ptr = (__u64)ctx->args[2];
 
-  save_network_enter_state(NETWORK_ACCEPT, &state, ev);
+  save_network_enter_state(NETWORK_ACCEPT, state, ev);
   return 0;
 }
 
@@ -191,15 +211,19 @@ int on_sys_enter_accept4(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.flags = (__s32)ctx->args[3];
-  state.ev.direction = infer_network_direction(NETWORK_ACCEPT4);
-  state.sockaddr_ptr = (__u64)ctx->args[1];
-  state.sockaddr_len_ptr = (__u64)ctx->args[2];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.flags = (__s32)ctx->args[3];
+  state->ev.direction = infer_network_direction(NETWORK_ACCEPT4);
+  state->sockaddr_ptr = (__u64)ctx->args[1];
+  state->sockaddr_len_ptr = (__u64)ctx->args[2];
 
-  save_network_enter_state(NETWORK_ACCEPT4, &state, ev);
+  save_network_enter_state(NETWORK_ACCEPT4, state, ev);
   return 0;
 }
 
@@ -225,12 +249,16 @@ int on_sys_enter_listen(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.backlog = (__s32)ctx->args[1];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.backlog = (__s32)ctx->args[1];
 
-  save_network_enter_state(NETWORK_LISTEN, &state, ev);
+  save_network_enter_state(NETWORK_LISTEN, state, ev);
   return 0;
 }
 
@@ -256,13 +284,17 @@ int on_sys_enter_getsockname(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.sockaddr_ptr = (__u64)ctx->args[1];
-  state.sockaddr_len_ptr = (__u64)ctx->args[2];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->sockaddr_ptr = (__u64)ctx->args[1];
+  state->sockaddr_len_ptr = (__u64)ctx->args[2];
 
-  save_network_enter_state(NETWORK_GETSOCKNAME, &state, ev);
+  save_network_enter_state(NETWORK_GETSOCKNAME, state, ev);
   return 0;
 }
 
@@ -288,13 +320,17 @@ int on_sys_enter_getpeername(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.sockaddr_ptr = (__u64)ctx->args[1];
-  state.sockaddr_len_ptr = (__u64)ctx->args[2];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->sockaddr_ptr = (__u64)ctx->args[1];
+  state->sockaddr_len_ptr = (__u64)ctx->args[2];
 
-  save_network_enter_state(NETWORK_GETPEERNAME, &state, ev);
+  save_network_enter_state(NETWORK_GETPEERNAME, state, ev);
   return 0;
 }
 
@@ -320,16 +356,20 @@ int on_sys_enter_setsockopt(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.opt_level = (__s32)ctx->args[1];
-  state.ev.opt_name = (__s32)ctx->args[2];
-  state.ev.opt_len = (__s32)ctx->args[4];
-  state.optval_ptr = (__u64)ctx->args[3];
-  copy_optval_prefix(state.ev.optval_prefix, (const void*)ctx->args[3], (__u32)ctx->args[4]);
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.opt_level = (__s32)ctx->args[1];
+  state->ev.opt_name = (__s32)ctx->args[2];
+  state->ev.opt_len = (__s32)ctx->args[4];
+  state->optval_ptr = (__u64)ctx->args[3];
+  copy_optval_prefix(state->ev.optval_prefix, (const void*)ctx->args[3], (__u32)ctx->args[4]);
 
-  save_network_enter_state(NETWORK_SETSOCKOPT, &state, ev);
+  save_network_enter_state(NETWORK_SETSOCKOPT, state, ev);
   return 0;
 }
 
@@ -355,20 +395,24 @@ int on_sys_enter_getsockopt(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.opt_level = (__s32)ctx->args[1];
-  state.ev.opt_name = (__s32)ctx->args[2];
-  state.optval_ptr = (__u64)ctx->args[3];
-  state.optlen_ptr = (__u64)ctx->args[4];
-  if (state.optlen_ptr != 0) {
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.opt_level = (__s32)ctx->args[1];
+  state->ev.opt_name = (__s32)ctx->args[2];
+  state->optval_ptr = (__u64)ctx->args[3];
+  state->optlen_ptr = (__u64)ctx->args[4];
+  if (state->optlen_ptr != 0) {
     __u32 requested_len = 0;
-    bpf_probe_read_user(&requested_len, sizeof(requested_len), (const void*)state.optlen_ptr);
-    state.ev.opt_len = (__s32)requested_len;
+    bpf_probe_read_user(&requested_len, sizeof(requested_len), (const void*)state->optlen_ptr);
+    state->ev.opt_len = (__s32)requested_len;
   }
 
-  save_network_enter_state(NETWORK_GETSOCKOPT, &state, ev);
+  save_network_enter_state(NETWORK_GETSOCKOPT, state, ev);
   return 0;
 }
 
@@ -394,18 +438,22 @@ int on_sys_enter_sendto(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.flags = (__s32)ctx->args[3];
-  state.ev.direction = infer_network_direction(NETWORK_SENDTO);
-  state.ev.bytes_requested = (__u64)ctx->args[2];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.flags = (__s32)ctx->args[3];
+  state->ev.direction = infer_network_direction(NETWORK_SENDTO);
+  state->ev.bytes_requested = (__u64)ctx->args[2];
 
   const void* sockaddr_ptr = (const void*)ctx->args[4];
   __u32 sockaddr_len = (__u32)ctx->args[5];
-  parse_sockaddr_user(sockaddr_ptr, sockaddr_len, &state.ev.remote);
+  parse_sockaddr_user(sockaddr_ptr, sockaddr_len, &state->ev.remote);
 
-  save_network_enter_state(NETWORK_SENDTO, &state, ev);
+  save_network_enter_state(NETWORK_SENDTO, state, ev);
   return 0;
 }
 
@@ -431,25 +479,29 @@ int on_sys_enter_sendmsg(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.flags = (__s32)ctx->args[2];
-  state.ev.direction = infer_network_direction(NETWORK_SENDMSG);
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.flags = (__s32)ctx->args[2];
+  state->ev.direction = infer_network_direction(NETWORK_SENDMSG);
 
   const struct msghdr_min* msg = (const struct msghdr_min*)ctx->args[1];
   if (msg) {
     struct msghdr_min hdr = {};
     if (bpf_probe_read_user(&hdr, sizeof(hdr), msg) == 0) {
-      state.ev.bytes_requested = sum_iovec_lengths((const struct iovec_min*)hdr.msg_iov,
+      state->ev.bytes_requested = sum_iovec_lengths((const struct iovec_min*)hdr.msg_iov,
                                                   (__u64)hdr.msg_iovlen);
       if (hdr.msg_name && hdr.msg_namelen > 0) {
-        parse_sockaddr_user((const void*)hdr.msg_name, hdr.msg_namelen, &state.ev.remote);
+        parse_sockaddr_user((const void*)hdr.msg_name, hdr.msg_namelen, &state->ev.remote);
       }
     }
   }
 
-  save_network_enter_state(NETWORK_SENDMSG, &state, ev);
+  save_network_enter_state(NETWORK_SENDMSG, state, ev);
   return 0;
 }
 
@@ -475,16 +527,20 @@ int on_sys_enter_recvfrom(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.flags = (__s32)ctx->args[3];
-  state.ev.direction = infer_network_direction(NETWORK_RECVFROM);
-  state.ev.bytes_requested = (__u64)ctx->args[2];
-  state.sockaddr_ptr = (__u64)ctx->args[4];
-  state.sockaddr_len_ptr = (__u64)ctx->args[5];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.flags = (__s32)ctx->args[3];
+  state->ev.direction = infer_network_direction(NETWORK_RECVFROM);
+  state->ev.bytes_requested = (__u64)ctx->args[2];
+  state->sockaddr_ptr = (__u64)ctx->args[4];
+  state->sockaddr_len_ptr = (__u64)ctx->args[5];
 
-  save_network_enter_state(NETWORK_RECVFROM, &state, ev);
+  save_network_enter_state(NETWORK_RECVFROM, state, ev);
   return 0;
 }
 
@@ -510,25 +566,29 @@ int on_sys_enter_recvmsg(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.flags = (__s32)ctx->args[2];
-  state.ev.direction = infer_network_direction(NETWORK_RECVMSG);
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.flags = (__s32)ctx->args[2];
+  state->ev.direction = infer_network_direction(NETWORK_RECVMSG);
 
   const struct msghdr_min* msg = (const struct msghdr_min*)ctx->args[1];
   if (msg) {
     struct msghdr_min hdr = {};
     if (bpf_probe_read_user(&hdr, sizeof(hdr), msg) == 0) {
-      state.ev.bytes_requested = sum_iovec_lengths((const struct iovec_min*)hdr.msg_iov,
+      state->ev.bytes_requested = sum_iovec_lengths((const struct iovec_min*)hdr.msg_iov,
                                                   (__u64)hdr.msg_iovlen);
       if (hdr.msg_name && hdr.msg_namelen > 0) {
-        parse_sockaddr_user((const void*)hdr.msg_name, hdr.msg_namelen, &state.ev.remote);
+        parse_sockaddr_user((const void*)hdr.msg_name, hdr.msg_namelen, &state->ev.remote);
       }
     }
   }
 
-  save_network_enter_state(NETWORK_RECVMSG, &state, ev);
+  save_network_enter_state(NETWORK_RECVMSG, state, ev);
   return 0;
 }
 
@@ -558,13 +618,17 @@ int on_sys_enter_read(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.direction = infer_network_direction(NETWORK_READ);
-  state.ev.bytes_requested = (__u64)ctx->args[2];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.direction = infer_network_direction(NETWORK_READ);
+  state->ev.bytes_requested = (__u64)ctx->args[2];
 
-  save_network_enter_state(NETWORK_READ, &state, ev);
+  save_network_enter_state(NETWORK_READ, state, ev);
   return 0;
 }
 
@@ -594,13 +658,17 @@ int on_sys_enter_write(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.direction = infer_network_direction(NETWORK_WRITE);
-  state.ev.bytes_requested = (__u64)ctx->args[2];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.direction = infer_network_direction(NETWORK_WRITE);
+  state->ev.bytes_requested = (__u64)ctx->args[2];
 
-  save_network_enter_state(NETWORK_WRITE, &state, ev);
+  save_network_enter_state(NETWORK_WRITE, state, ev);
   return 0;
 }
 
@@ -630,14 +698,18 @@ int on_sys_enter_readv(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.direction = infer_network_direction(NETWORK_READV);
-  state.ev.bytes_requested = sum_iovec_lengths((const struct iovec_min*)ctx->args[1],
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.direction = infer_network_direction(NETWORK_READV);
+  state->ev.bytes_requested = sum_iovec_lengths((const struct iovec_min*)ctx->args[1],
                                               (__u64)ctx->args[2]);
 
-  save_network_enter_state(NETWORK_READV, &state, ev);
+  save_network_enter_state(NETWORK_READV, state, ev);
   return 0;
 }
 
@@ -667,14 +739,18 @@ int on_sys_enter_writev(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.direction = infer_network_direction(NETWORK_WRITEV);
-  state.ev.bytes_requested = sum_iovec_lengths((const struct iovec_min*)ctx->args[1],
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.direction = infer_network_direction(NETWORK_WRITEV);
+  state->ev.bytes_requested = sum_iovec_lengths((const struct iovec_min*)ctx->args[1],
                                               (__u64)ctx->args[2]);
 
-  save_network_enter_state(NETWORK_WRITEV, &state, ev);
+  save_network_enter_state(NETWORK_WRITEV, state, ev);
   return 0;
 }
 
@@ -704,17 +780,21 @@ int on_sys_enter_sendmmsg(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.flags = (__s32)ctx->args[3];
-  state.ev.direction = infer_network_direction(NETWORK_SENDMMSG);
-  state.mmsg_ptr = (__u64)ctx->args[1];
-  state.mmsg_count = (__u64)ctx->args[2];
-  state.ev.bytes_requested = sum_mmsghdr_lengths((const struct mmsghdr_min*)state.mmsg_ptr,
-                                                 (__u32)state.mmsg_count);
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.flags = (__s32)ctx->args[3];
+  state->ev.direction = infer_network_direction(NETWORK_SENDMMSG);
+  state->mmsg_ptr = (__u64)ctx->args[1];
+  state->mmsg_count = (__u64)ctx->args[2];
+  state->ev.bytes_requested = sum_mmsghdr_lengths((const struct mmsghdr_min*)state->mmsg_ptr,
+                                                 (__u32)state->mmsg_count);
 
-  save_network_enter_state(NETWORK_SENDMMSG, &state, ev);
+  save_network_enter_state(NETWORK_SENDMMSG, state, ev);
   return 0;
 }
 
@@ -744,17 +824,21 @@ int on_sys_enter_recvmmsg(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.flags = (__s32)ctx->args[3];
-  state.ev.direction = infer_network_direction(NETWORK_RECVMMSG);
-  state.mmsg_ptr = (__u64)ctx->args[1];
-  state.mmsg_count = (__u64)ctx->args[2];
-  state.ev.bytes_requested = sum_mmsghdr_lengths((const struct mmsghdr_min*)state.mmsg_ptr,
-                                                 (__u32)state.mmsg_count);
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.flags = (__s32)ctx->args[3];
+  state->ev.direction = infer_network_direction(NETWORK_RECVMMSG);
+  state->mmsg_ptr = (__u64)ctx->args[1];
+  state->mmsg_count = (__u64)ctx->args[2];
+  state->ev.bytes_requested = sum_mmsghdr_lengths((const struct mmsghdr_min*)state->mmsg_ptr,
+                                                 (__u32)state->mmsg_count);
 
-  save_network_enter_state(NETWORK_RECVMMSG, &state, ev);
+  save_network_enter_state(NETWORK_RECVMMSG, state, ev);
   return 0;
 }
 
@@ -780,12 +864,16 @@ int on_sys_enter_shutdown(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
-  state.ev.how = (__s32)ctx->args[1];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
+  state->ev.how = (__s32)ctx->args[1];
 
-  save_network_enter_state(NETWORK_SHUTDOWN, &state, ev);
+  save_network_enter_state(NETWORK_SHUTDOWN, state, ev);
   return 0;
 }
 
@@ -806,16 +894,26 @@ int on_sys_enter_close(struct trace_event_raw_sys_enter* ctx) {
     return 0;
   }
 
+  /* Only sockets: without this, every close() of a regular fd would be emitted
+   * as a network "close" event. Socket fds are tracked in socket_fd_state. */
+  if (!is_socket_fd((__s32)ctx->args[0])) {
+    return 0;
+  }
+
   struct network_event* ev = reserve_network_event(NETWORK_CLOSE);
   if (!ev) {
     return 0;
   }
 
-  struct network_state_value state = {};
-  state.ev = *ev;
-  state.ev.fd = (__s32)ctx->args[0];
+  struct network_state_value* state = net_scratch();
+  if (!state) {
+    bpf_ringbuf_discard(ev, 0);
+    return 0;
+  }
+  state->ev = *ev;
+  state->ev.fd = (__s32)ctx->args[0];
 
-  save_network_enter_state(NETWORK_CLOSE, &state, ev);
+  save_network_enter_state(NETWORK_CLOSE, state, ev);
   return 0;
 }
 

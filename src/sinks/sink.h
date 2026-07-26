@@ -7,23 +7,24 @@
  * - Allows plugging stdout/file/network sinks without changing upstream stages.
  */
 
-#include "decoder/decoder.h"
+#include "model/canonical_event.h"
 
 namespace event_logger {
 
 /**
- * @brief Typed event output contract.
+ * @brief Canonical event output contract.
  */
 class Sink {
  public:
   virtual ~Sink() = default;
 
   /**
-   * @brief Export one typed event to the sink destination.
+   * @brief Export one canonical event to the sink destination.
    *
-   * @param event Typed event payload to serialize/forward.
+   * @param event Canonical event to serialize/forward. Its `raw` pointer gives
+   *              access to the underlying typed payload for full-fidelity output.
    */
-  virtual void Write(const EventVariant& event) = 0;
+  virtual void Write(const CanonicalEvent& event) = 0;
 };
 
 }  // namespace event_logger

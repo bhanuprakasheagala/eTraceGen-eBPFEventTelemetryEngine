@@ -7,3 +7,4 @@
 #include "event_logger_process.bpf.c"
 #include "event_logger_file.bpf.c"
 #include "event_logger_syscall.bpf.c"
+#include "event_logger_network.bpf.c"

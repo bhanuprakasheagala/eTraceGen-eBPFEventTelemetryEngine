@@ -43,9 +43,9 @@ class JsonSink final : public Sink {
   bool IsReady() const { return ready_; }
 
   /**
-   * @brief Serialize and write one typed event as JSON.
+   * @brief Serialize and write one canonical event as JSON.
    */
-  void Write(const EventVariant& event) override;
+  void Write(const CanonicalEvent& event) override;
 
  private:
   /**
