@@ -102,7 +102,7 @@ eTraceGen currently focuses on building a reliable **observation layer** for Lin
 | 🟢 Process | Process lifecycle (`fork`, `clone`, `exec`, `exit`) |
 | 🟢 File System | File operations (`open`, `rename`, `unlink`) |
 | 🟢 Syscalls | Raw syscall entry and exit tracing |
-| 🟢 Network | Socket lifecycle and socket I/O monitoring |
+| 🟢 Network | Socket lifecycle + socket I/O (`socket`, `connect`, `accept`, `bind`, `listen`, `send*`/`recv*`, `read`/`write`, `close`, …) — compiled in and enabled by default |
 
 ## Runtime Features
 
@@ -110,13 +110,16 @@ eTraceGen currently focuses on building a reliable **observation layer** for Lin
 - Userspace event collection using **libbpf**
 - YAML-based runtime configuration
 - NDJSON event logging
-- Automatic log rotation
+- Size-based log truncation (⚠️ delete-and-recreate at the size limit — **no backups; history at the boundary is discarded**)
 - Self-observation suppression
 - Verifier-friendly modular BPF programs
 
-## Current Network Scope
+## Network Scope
 
-Network monitoring currently focuses on the **socket layer**, including socket lifecycle events and data transmission.
+> **Status:** the socket-layer instrumentation is **compiled into the BPF object and enabled by
+> default**. It captures the full socket-first taxonomy (control plane + data plane) as metadata-only
+> records — no protocol/payload inspection. This is a high-volume profile; see the noise/overhead
+> notes in the [roadmap](docs/roadmap.md).
 
 ```text
 Application
@@ -124,7 +127,7 @@ Application
       ▼
 HTTP / HTTPS / DNS / TLS      🚧 Planned
 ──────────────────────────────
-Socket Layer                  ✅ Current
+Socket Layer                  🟢 Active (metadata-only)
 ──────────────────────────────
 TCP / UDP                     Kernel
 ──────────────────────────────

@@ -13,7 +13,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_executable(etracegen
   src/main.cpp
   src/decoder/decoder.cpp
-  src/enricher/enricher.cpp
+  src/model/normalizer.cpp
+  src/registry/entity_registry.cpp
+  src/util/proc_util.cpp
   src/policy/policy.cpp
   src/sinks/json_sink.cpp
   src/metrics/metrics.cpp
@@ -29,6 +31,19 @@ add_executable(test_policy_process
 )
 target_include_directories(test_policy_process PRIVATE include src)
 target_compile_options(test_policy_process PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(test_model_registry
+  tests/test_model_registry.cpp
+  src/model/normalizer.cpp
+  src/registry/entity_registry.cpp
+  src/util/proc_util.cpp
+)
+target_include_directories(test_model_registry PRIVATE include src)
+target_compile_options(test_model_registry PRIVATE -Wall -Wextra -Wpedantic)
+
+enable_testing()
+add_test(NAME policy_process COMMAND test_policy_process)
+add_test(NAME model_registry COMMAND test_model_registry)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBBPF REQUIRED libbpf)

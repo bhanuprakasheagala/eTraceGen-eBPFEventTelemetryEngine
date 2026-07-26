@@ -7,7 +7,10 @@ domains:
   file: true
   syscall: false
 
-  # Minimal socket lifecycle metadata events.
+  # Socket lifecycle + socket I/O events. The network eBPF module is now compiled
+  # into the BPF object, so this captures the full socket-first taxonomy (control
+  # plane + data plane). This is a high-volume "everything on" profile; per-kind
+  # runtime toggles can trim it later (see docs/roadmap.md, Milestone 2).
   network_socket: true
 
   dns: false
